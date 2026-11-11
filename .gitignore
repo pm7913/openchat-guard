@@ -1,0 +1,9 @@
+node_modules/
+.env
+# 你自己的設定（含聊天室 ID）；範本是 config.example.json
+config.json
+# 登入資料、對話紀錄、圖片：不可外傳
+data/
+*.log
+.DS_Store
+Thumbs.db

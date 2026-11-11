@@ -1,0 +1,46 @@
+{
+  "name": "openchat-guard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LINE 社群（OpenChat）詐騙廣告守衛：偵測圖片裡的導流 QR Code，自動刪除訊息並封鎖發文者",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test:rules": "tsx src/test-samples.ts",
+    "test:ai": "tsx --env-file-if-exists=.env src/test-samples.ts --ai",
+    "login": "tsx src/login.ts",
+    "list": "tsx src/list-chats.ts",
+    "start": "tsx --env-file-if-exists=.env src/bot.ts",
+    "test:image": "tsx src/test-image.ts",
+    "watch": "tsx src/watch.ts",
+    "probe": "tsx src/probe.ts",
+    "guard": "tsx src/guard-qr.ts",
+    "guard:live": "tsx src/guard-qr.ts --live",
+    "guard:test": "tsx src/guard-qr.ts --live --kick"
+  },
+  "keywords": [
+    "line",
+    "openchat",
+    "anti-scam",
+    "qrcode",
+    "moderation"
+  ],
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.7.0",
+    "@evex-dev/linejs": "^3.6.4",
+    "@types/qrcode": "^1.5.6",
+    "jimp": "^1.6.1",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "zxing-wasm": "3.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

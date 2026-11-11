@@ -1,0 +1,24 @@
+{
+  "dryRun": true,
+  "model": "claude-opus-5-5",
+  "watchChatMids": [],
+  "newMemberDays": 7,
+  "thresholds": {
+    "delete": 0.7,
+    "remove": 0.9,
+    "removeNewMember": 0.8
+  },
+  "banInsteadOfKick": true,
+  "hideContentsOnBan": false,
+  "ruleOnlyScore": 0.95,
+  "llmGate": "suspicious",
+  "llmScoreGate": 0.2,
+  "llmMinLengthForReview": 60,
+  "whitelistMemberMids": [],
+  "extraKeywords": [],
+  "ignoreKeywords": [],
+  "contextMessages": 8,
+  "pollIntervalSec": [10, 20],
+  "qrBurstWindowSec": 120,
+  "qrBlockAnyQr": false
+}
