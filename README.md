@@ -64,6 +64,9 @@ QR Code 會直接畫在終端機上，同時存成 `data/login-qr.png`（Windows
 
 登入資料存在 `data/auth.json` 和 `data/line-storage.json`，**等同帳號密碼，不要外傳**。之後啟動不用再掃 QR Code。
 
+> [!IMPORTANT]
+> 程式是用「LINE 電腦版（Windows）」的身分登入。一個 LINE 帳號同時只能登入一台電腦版，所以**不要再用機器人帳號開 LINE 電腦版**，否則守衛會被擠下線，要重新執行 `npm run login`。手機版不受影響。
+
 ### 3. 設定要守護的聊天室
 
 ```bash
@@ -75,6 +78,8 @@ npm run list
 ```json
 "watchChatMids": ["m1234abcd..."]
 ```
+
+要守護好幾個聊天室就填好幾個，用逗號隔開：`["m1234abcd...", "m5678efgh..."]`。機器人在每個聊天室都要是副管理員。
 
 ### 4. 觀察模式（建議先跑幾天）
 
@@ -98,17 +103,34 @@ npm run guard
   └ 訊息 2 則：已刪除、已刪除｜成員：已封鎖
 ```
 
+如果封鎖失敗，會改成把對方移出社群（顯示「已移出」）。
+
 每次處理都記在 `data/guard-actions.jsonl`，被判定的圖片存在 `data/guard-images/` 當證據（含成員內容，請定期清理）。
 
 **注意**：同一個機器人帳號同時只能跑一個程式，也不要同時在兩台電腦上跑。
 
 ### 讓它一直跑
 
-- **Windows**：點兩下 `start-guard.bat`，程式當掉會自動重啟。是否真的動手一樣由 `dryRun` 決定。
+- **Windows**：點兩下 `start-guard.bat`，程式當掉會自動重啟。是否真的動手一樣由 `dryRun` 決定。要停止就直接關掉這個視窗。
 - **VPS（Linux）**：用 [pm2](https://pm2.keymetrics.io) 或 systemd，例如：
   ```bash
   pm2 start npm --name openchat-guard -- run guard
   ```
+
+直接用 `npm run guard` 啟動的，在視窗裡按 `Ctrl+C` 停止，會順便存好讀取進度。下次啟動會補處理停機期間的訊息。
+
+改了 `config.json` 之後要重新啟動才會生效。
+
+### 更新到新版
+
+先停止守衛，然後：
+
+```bash
+git pull
+npm install
+```
+
+你的 `config.json` 和 `data/` 不會被覆蓋，也不用重新登入。
 
 ## 設定（config.json）
 
@@ -135,6 +157,33 @@ QR 守衛用到的設定：
 | `npm run guard:test` | 正式動手但只移出、不封鎖，方便用測試帳號驗證，對方之後還能再加入 |
 | `npm run test:image` | QR 辨識測試：用程式產生的刁鑽圖片（角落小 QR、反色、旋轉、模糊、雜訊…），不需要登入 |
 | `npx tsx src/test-image.ts <圖片或資料夾>` | 掃描你自己的圖，例如手機截下的廣告圖 |
+| `npm run probe` | 診斷：測試目前登入的帳號能用哪些社群功能，只讀取、不改任何東西 |
+| `npm run typecheck` | 開發用：檢查 TypeScript 型別 |
+
+## 常見問題
+
+**啟動時顯示「還沒登入。請先執行：npm run login」**
+
+還沒登入過，或 `data/auth.json` 不見了。執行 `npm run login` 重新登入。
+
+**啟動時就出錯結束，或畫面一直出現「補漏失敗」、每小時統計的推播都是 0**
+
+通常是登入失效了，例如有人用機器人帳號開了 LINE 電腦版把它擠下線，或帳號被登出、停用。停止守衛，執行 `npm run login` 重新登入，再啟動。
+
+用 `start-guard.bat` 的話，登入失效後它會每 10 秒重啟、一直失敗下去。看到這種情況就關掉視窗，重新登入後再開。
+
+**啟動時出現「⚠ 機器人不是管理員或副管理員」**
+
+機器人沒有刪除權限，抓到廣告也刪不掉。用群主帳號把它設成副管理員，給它「刪除訊息」和「刪除成員」的權限，然後重新啟動。
+
+**有廣告沒被刪掉**
+
+1. 把那張廣告圖存下來，用 `npx tsx src/test-image.ts <圖片>` 掃看看。如果掃不出 QR Code，或連結不在[處理清單](#會處理哪些-qr-code)裡，守衛就不會處理。
+2. 確認機器人帳號有開啟這個社群的通知。
+
+**誤刪了正常成員的訊息**
+
+把這位成員的 ID（`p` 開頭，就是 `data/guard-actions.jsonl` 那筆紀錄的 `senderMid`）加進 `whitelistMemberMids`，重新啟動。如果你有開 `qrBlockAnyQr`，也可以考慮改回 `false`。
 
 ## 運作方式
 

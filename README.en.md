@@ -67,6 +67,9 @@ The QR code is drawn directly in the terminal and also saved as `data/login-qr.p
 
 Login data is stored in `data/auth.json` and `data/line-storage.json`. **Treat these like a password and never share them.** Later runs reuse them, so you don't need to scan again.
 
+> [!IMPORTANT]
+> The guard signs in as "LINE for Windows (desktop)". A LINE account can be signed in to only one desktop client at a time, so **never open LINE desktop with the bot account**. Doing so kicks the guard offline, and you'll have to run `npm run login` again. The phone app is not affected.
+
 ### 3. Choose the chats to guard
 
 ```bash
@@ -78,6 +81,8 @@ The first time you run any command, your own `config.json` is created from `conf
 ```json
 "watchChatMids": ["m1234abcd..."]
 ```
+
+To guard several chats, list them all separated by commas: `["m1234abcd...", "m5678efgh..."]`. The bot must be a co-admin in each one.
 
 ### 4. Dry run (recommended for a few days)
 
@@ -109,11 +114,26 @@ Every action is logged to `data/guard-actions.jsonl`, and the flagged image is s
 
 ### Keep it running
 
-- **Windows**: double-click `start-guard.bat`. It restarts the guard automatically if it crashes. Whether it actually acts still depends on `dryRun`.
+- **Windows**: double-click `start-guard.bat`. It restarts the guard automatically if it crashes. Whether it actually acts still depends on `dryRun`. To stop it, close the window.
 - **VPS (Linux)**: use [pm2](https://pm2.keymetrics.io) or systemd, for example:
   ```bash
   pm2 start npm --name openchat-guard -- run guard
   ```
+
+If you started it with `npm run guard`, press `Ctrl+C` in that window to stop. The guard saves its read progress on the way out, and the next run catches up on messages posted while it was stopped.
+
+Changes to `config.json` take effect after a restart.
+
+### Updating
+
+Stop the guard, then:
+
+```bash
+git pull
+npm install
+```
+
+Your `config.json` and `data/` are left alone, and you don't need to sign in again.
 
 ## Configuration (config.json)
 
@@ -140,6 +160,33 @@ The other settings in `config.json` belong to the experimental AI mode and are n
 | `npm run guard:test` | Acts for real but only removes instead of banning, so a test account can rejoin afterwards |
 | `npm run test:image` | QR decoding test using generated tricky images (tiny QR in a corner, inverted, rotated, blurred, noisy…). No sign-in needed |
 | `npx tsx src/test-image.ts <image or folder>` | Scan your own images, such as ad screenshots from your phone |
+| `npm run probe` | Diagnostics: checks which OpenChat features work for the signed-in account. Read-only; changes nothing |
+| `npm run typecheck` | For development: checks TypeScript types |
+
+## Troubleshooting
+
+**At startup: 「還沒登入。請先執行：npm run login」 ("Not signed in. Run npm run login first")**
+
+You haven't signed in yet, or `data/auth.json` is missing. Run `npm run login`.
+
+**The guard exits with an error at startup, or keeps printing 「補漏失敗」 ("catch-up failed"), or the hourly report shows 0 push messages**
+
+The login has usually expired: someone opened LINE desktop with the bot account and kicked it offline, or the account was signed out or suspended. Stop the guard, run `npm run login`, and start it again.
+
+With `start-guard.bat`, an expired login makes it restart every 10 seconds and fail every time. If you see that, close the window, sign in again, then reopen it.
+
+**At startup: 「⚠ 機器人不是管理員或副管理員」 ("the bot is not an admin or co-admin")**
+
+The bot can't delete anything, even when it catches an ad. From the owner's account, make it a co-admin with permission to delete messages and remove members, then restart.
+
+**An ad wasn't deleted**
+
+1. Save the image and scan it with `npx tsx src/test-image.ts <image>`. If no QR code is found, or the link isn't in the [list above](#which-qr-codes-are-acted-on), the guard won't act on it.
+2. Check that the bot account has notifications turned on for the community.
+
+**A legitimate member's message was deleted**
+
+Add that member's ID (starts with `p`; it's the `senderMid` in that entry of `data/guard-actions.jsonl`) to `whitelistMemberMids` and restart. If you turned on `qrBlockAnyQr`, consider setting it back to `false`.
 
 ## How it works
 
