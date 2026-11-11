@@ -37,14 +37,16 @@
 
 ### 0. 準備
 
-- [Node.js](https://nodejs.org) 22.18 以上或 24 LTS
+- [Node.js](https://nodejs.org) 26 LTS（建議），或 24.11 以上、22 版的 22.18 以上（登入用的 linejs 套件要求）。專案的 `.nvmrc` 寫的是 26，用 fnm、nvm 等工具可以直接切換到這一版
 - 一台一直開著的電腦或 VPS。Windows 請到「設定 → 系統 → 電源」，把睡眠設成「永不」。
 
 ```bash
 git clone <這個 repo 的網址>
 cd openchat-guard
-npm install
+npm ci
 ```
+
+`npm ci` 會照 `package-lock.json` 安裝版本完全一樣的套件。Node 版本不符合時會直接失敗，並顯示需要的版本，請先升級 Node 再安裝。
 
 ### 1. 準備機器人帳號
 
@@ -73,13 +75,34 @@ QR Code 會直接畫在終端機上，同時存成 `data/login-qr.png`（Windows
 npm run list
 ```
 
-第一次執行任何指令時，程式會從 `config.example.json` 自動建立你自己的 `config.json`。把要守護的聊天室 ID（`m` 開頭）填進 `config.json` 的 `watchChatMids`：
+畫面會列出機器人加入的每個社群、它在社群裡的身分，以及聊天室 ID（`m` 開頭）。已經在守護的聊天室前面會標 `✓`。
 
-```json
-"watchChatMids": ["m1234abcd..."]
+把要守護的聊天室加進去：
+
+```bash
+npm run chat:add m0123456789abcdef0123456789abcdef
 ```
 
-要守護好幾個聊天室就填好幾個，用逗號隔開：`["m1234abcd...", "m5678efgh..."]`。機器人在每個聊天室都要是副管理員。
+- 會先登入確認聊天室存在、機器人還在社群裡，再寫進 `config.json` 的 `watchChatMids`。
+- **新增前要先停止守衛**：新增需要登入，同一個帳號不能跟守衛同時登入。守衛還在跑的話，指令會提醒你先停止。
+- 機器人在那個社群如果只是一般成員（`MEMBER`），還是會加入，但會提醒你：看得到廣告、刪不掉。
+- 可以一次加好幾個，ID 之間用空白隔開。已經在清單裡的不會重複加入。
+
+不想守護了就移除：
+
+```bash
+npm run chat:remove m0123456789abcdef0123456789abcdef
+```
+
+移除不需要登入，守衛執行中也可以用，但要重新啟動守衛才會生效。手動填錯的 ID 也能用這個指令移除。
+
+也可以直接改 `config.json`。第一次執行任何指令時，程式會從 `config.example.json` 自動建立你自己的 `config.json`，聊天室 ID 填在 `watchChatMids`，好幾個就用逗號隔開：
+
+```json
+"watchChatMids": ["m1234abcd...", "m5678efgh..."]
+```
+
+機器人在每個要守護的聊天室都要是副管理員。
 
 ### 4. 觀察模式（建議先跑幾天）
 
@@ -127,7 +150,7 @@ npm run guard
 
 ```bash
 git pull
-npm install
+npm ci
 ```
 
 你的 `config.json` 和 `data/` 不會被覆蓋，也不用重新登入。
@@ -139,7 +162,7 @@ QR 守衛用到的設定：
 | 設定 | 說明 |
 |---|---|
 | `dryRun` | `true` 只顯示不動手（預設）；`false` 正式刪除和封鎖 |
-| `watchChatMids` | 要守護的聊天室 ID，用 `npm run list` 查 |
+| `watchChatMids` | 要守護的聊天室 ID，用 `npm run list` 查，用 `npm run chat:add`／`chat:remove` 增減 |
 | `banInsteadOfKick` | `true` 封鎖，對方不能再加入（預設）；`false` 只移出 |
 | `hideContentsOnBan` | 封鎖時一併隱藏此人所有歷史訊息（預設 `false`） |
 | `whitelistMemberMids` | 永遠不處理的成員 ID（`p` 開頭）。管理員、副管理員已自動排除 |
@@ -220,6 +243,7 @@ QR 守衛用到的設定：
 | `auth.json`、`line-storage.json` | 機器人帳號登入資料，**等同帳號密碼，不可外傳** |
 | `guard-actions.jsonl`、`guard-images/` | QR 守衛的處理紀錄與證據圖 |
 | `guard-state.json` | 讀取進度 |
+| `running.json` | 守衛執行中的標記，讓 `chat:add` 知道守衛還在跑；守衛結束時會自動刪除 |
 | `watch-*` | 收訊測試的紀錄與圖片 |
 
 ## 授權

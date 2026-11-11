@@ -29,6 +29,40 @@ export async function loginByQr(onQrUrl: (url: string) => Promise<void> | void):
   return client;
 }
 
+/** 社群身分是否為管理員或副管理員（才能刪訊息、移出成員）。linejs 可能回傳名稱或數字。 */
+export function isAdminRole(role: unknown): boolean {
+  const r = String(role);
+  return r === "ADMIN" || r === "CO_ADMIN" || r === "1" || r === "2";
+}
+
+export interface ChatInfo {
+  mid: string;
+  name: string;
+  squareMid: string;
+  /** 機器人在這個社群的身分：ADMIN、CO_ADMIN、MEMBER */
+  role: string;
+  /** 機器人在這個社群的成員 ID（p 開頭） */
+  myMemberMid: string;
+  /** 機器人是否還在這個社群裡（不是已退出、被踢、被封鎖或還在等審核） */
+  joined: boolean;
+}
+
+/** 讀取聊天室名稱，以及機器人在所屬社群的身分。聊天室不存在或讀不到時會丟出錯誤。 */
+export async function getChatInfo(client: Client, mid: string): Promise<ChatInfo> {
+  const chat = await client.getSquareChat(mid);
+  const square = await client.base.square.getSquare({ squareMid: chat.raw.squareMid });
+  const me = square.myMembership;
+  const state = String(me?.membershipState);
+  return {
+    mid,
+    name: chat.raw.name,
+    squareMid: chat.raw.squareMid,
+    role: me ? String(me.role) : "?",
+    myMemberMid: me?.squareMemberMid ?? "",
+    joined: state === "JOINED" || state === "2",
+  };
+}
+
 export async function loginSaved(): Promise<Client> {
   const auth = readJson<{ authToken?: string }>("auth.json", {});
   if (!auth.authToken) {

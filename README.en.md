@@ -40,14 +40,16 @@ Other QR codes, such as ordinary websites or share codes from stock apps, are le
 
 ### 0. Requirements
 
-- [Node.js](https://nodejs.org) 22.18 or later, or 24 LTS
+- [Node.js](https://nodejs.org) 26 LTS (recommended), or 24.11+, or 22.18+ on the 22 line (required by the linejs sign-in library). The project's `.nvmrc` says 26, so tools like fnm and nvm can switch to it directly
 - A computer or VPS that stays on. On Windows, go to Settings → System → Power and set sleep to "Never".
 
 ```bash
 git clone <this repo's URL>
 cd openchat-guard
-npm install
+npm ci
 ```
+
+`npm ci` installs the exact package versions from `package-lock.json`. If your Node version doesn't match, it stops with an error naming the required version; upgrade Node and run it again.
 
 ### 1. Prepare a bot account
 
@@ -76,13 +78,34 @@ Login data is stored in `data/auth.json` and `data/line-storage.json`. **Treat t
 npm run list
 ```
 
-The first time you run any command, your own `config.json` is created from `config.example.json`. Put the chat IDs to guard (they start with `m`) into `watchChatMids` in `config.json`:
+This lists every community the bot has joined, its role in each, and the chat IDs (starting with `m`). Chats already being guarded are marked `✓`.
 
-```json
-"watchChatMids": ["m1234abcd..."]
+Add a chat to guard:
+
+```bash
+npm run chat:add m0123456789abcdef0123456789abcdef
 ```
 
-To guard several chats, list them all separated by commas: `["m1234abcd...", "m5678efgh..."]`. The bot must be a co-admin in each one.
+- It signs in to confirm the chat exists and the bot is still in the community, then writes it to `watchChatMids` in `config.json`.
+- **Stop the guard before adding**: adding needs to sign in, and the same account can't be signed in by the guard at the same time. If the guard is still running, the command tells you to stop it first.
+- If the bot is only a regular member (`MEMBER`) there, the chat is still added, with a warning that the bot can see ads but can't delete them.
+- You can add several at once, separated by spaces. IDs already on the list aren't added twice.
+
+To stop guarding a chat:
+
+```bash
+npm run chat:remove m0123456789abcdef0123456789abcdef
+```
+
+Removing doesn't sign in, so it works while the guard is running, but the guard needs a restart to pick it up. It also removes IDs that were typed in wrong by hand.
+
+You can also edit `config.json` directly. The first time you run any command, your own `config.json` is created from `config.example.json`. Chat IDs go in `watchChatMids`, separated by commas:
+
+```json
+"watchChatMids": ["m1234abcd...", "m5678efgh..."]
+```
+
+The bot must be a co-admin in every chat it guards.
 
 ### 4. Dry run (recommended for a few days)
 
@@ -130,7 +153,7 @@ Stop the guard, then:
 
 ```bash
 git pull
-npm install
+npm ci
 ```
 
 Your `config.json` and `data/` are left alone, and you don't need to sign in again.
@@ -142,7 +165,7 @@ Settings used by the QR guard:
 | Setting | Description |
 |---|---|
 | `dryRun` | `true` only prints what would happen (default); `false` deletes and bans for real |
-| `watchChatMids` | Chat IDs to guard; find them with `npm run list` |
+| `watchChatMids` | Chat IDs to guard; find them with `npm run list`, change them with `npm run chat:add` / `chat:remove` |
 | `banInsteadOfKick` | `true` bans, so the person can't rejoin (default); `false` only removes them |
 | `hideContentsOnBan` | Also hide all of the person's past messages when banning (default `false`) |
 | `whitelistMemberMids` | Member IDs (starting with `p`) that are never acted on. Admins and co-admins are excluded automatically |
@@ -223,6 +246,7 @@ Everything is stored in the project's `data/` folder, which is excluded from git
 | `auth.json`, `line-storage.json` | Bot account login data. **Treat like a password; never share** |
 | `guard-actions.jsonl`, `guard-images/` | QR guard action log and evidence images |
 | `guard-state.json` | Read progress |
+| `running.json` | Marks that the guard is running so `chat:add` can tell; removed automatically when the guard exits |
 | `watch-*` | Receive-only test logs and images |
 
 ## License

@@ -8,9 +8,9 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { appendLog, DATA_DIR, loadConfig, readJson, writeJson } from "./config.js";
+import { appendLog, claimRunLock, DATA_DIR, loadConfig, requireWatchChats, readJson, writeJson } from "./config.js";
 import { downloadImage, scanQr } from "./image.js";
-import { loginSaved, saveAuth } from "./line.js";
+import { getChatInfo, loginSaved, saveAuth } from "./line.js";
 import { startReceiver } from "./receiver.js";
 
 const STATS_EVERY_MIN = 10;
@@ -18,10 +18,8 @@ const IMAGE_DIR = path.join(DATA_DIR, "watch-images");
 mkdirSync(IMAGE_DIR, { recursive: true });
 
 const cfg = loadConfig();
-if (cfg.watchChatMids.length === 0) {
-  console.error("config.json 的 watchChatMids 是空的。請先執行 npm run list，把聊天室 ID 填進去。");
-  process.exit(1);
-}
+requireWatchChats(cfg);
+claimRunLock();
 
 const ts = () => new Date().toLocaleString("zh-TW", { hour12: false });
 const log = (msg: string) => console.log(`[${ts()}] ${msg}`);
@@ -36,10 +34,9 @@ setInterval(() => saveAuth(client), 30 * 60 * 1000).unref();
 
 const names = new Map<string, string>();
 for (const mid of cfg.watchChatMids) {
-  const chat = await client.getSquareChat(mid);
-  const square = await client.base.square.getSquare({ squareMid: chat.raw.squareMid });
-  names.set(mid, chat.raw.name);
-  log(`監看「${chat.raw.name}」｜機器人身分：${square.myMembership.role}`);
+  const info = await getChatInfo(client, mid);
+  names.set(mid, info.name);
+  log(`監看「${info.name}」｜機器人身分：${info.role}`);
 }
 
 let total = 0;

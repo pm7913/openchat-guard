@@ -5,10 +5,10 @@
 import crypto from "node:crypto";
 import type { Client, SquareMessage } from "@evex-dev/linejs";
 import { ScamClassifier } from "./classifier.js";
-import { appendLog, loadConfig, readJson, writeJson, type GuardConfig } from "./config.js";
+import { appendLog, claimRunLock, loadConfig, requireWatchChats, readJson, writeJson, type GuardConfig } from "./config.js";
 import { decide, type Decision } from "./engine.js";
 import { downloadImage, prepareImage } from "./image.js";
-import { loginSaved, saveAuth } from "./line.js";
+import { getChatInfo, isAdminRole, loginSaved, saveAuth } from "./line.js";
 import { compactText, normalizeText } from "./normalize.js";
 import { startReceiver } from "./receiver.js";
 import { evaluateRules } from "./rules.js";
@@ -50,10 +50,8 @@ function log(msg: string): void {
 
 // ---------- 啟動 ----------
 
-if (cfg.watchChatMids.length === 0) {
-  console.error("config.json 的 watchChatMids 是空的。請先執行 npm run list，把聊天室 ID 填進去。");
-  process.exit(1);
-}
+requireWatchChats(cfg);
+claimRunLock();
 
 const client: Client = await loginSaved();
 const sq = client.base.square;
@@ -230,7 +228,7 @@ async function handleMessage(chat: WatchedChat, m: SquareMessage): Promise<void>
   if (!text && contentType !== "IMAGE") return; // 貼圖、表情等略過
 
   const member = await getMember(senderMid);
-  if (member && (member.role === "ADMIN" || member.role === "CO_ADMIN")) {
+  if (member && isAdminRole(member.role)) {
     chat.adminMids.add(senderMid);
     return;
   }
@@ -350,21 +348,19 @@ client.on("message", async (msg) => {
 const watched = new Map<string, WatchedChat>();
 
 for (const squareChatMid of cfg.watchChatMids) {
-  const chatObj = await client.getSquareChat(squareChatMid);
-  const square = await sq.getSquare({ squareMid: chatObj.raw.squareMid });
-  const role = String(square.myMembership.role);
+  const info = await getChatInfo(client, squareChatMid);
   const chat: WatchedChat = {
     squareChatMid,
-    squareMid: chatObj.raw.squareMid,
-    name: chatObj.raw.name,
-    myMemberMid: square.myMembership.squareMemberMid,
+    squareMid: info.squareMid,
+    name: info.name,
+    myMemberMid: info.myMemberMid,
     adminMids: new Set(),
     adminNames: [],
     context: [],
     queue: Promise.resolve(),
   };
-  if (role !== "ADMIN" && role !== "CO_ADMIN") {
-    log(`⚠ 機器人在「${chat.name}」的身分是 ${role}，不是管理員或副管理員，無法刪除訊息或移出成員。`);
+  if (!isAdminRole(info.role)) {
+    log(`⚠ 機器人在「${chat.name}」的身分是 ${info.role}，不是管理員或副管理員，無法刪除訊息或移出成員。`);
   }
   await refreshAdmins(chat);
   setInterval(() => refreshAdmins(chat).catch((e) => log(`更新管理員名單失敗：${e.message}`)), 60 * 60 * 1000).unref();

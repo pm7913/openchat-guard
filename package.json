@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22.18"
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
   },
   "scripts": {
     "typecheck": "tsc",
@@ -14,6 +14,8 @@
     "test:ai": "tsx --env-file-if-exists=.env src/test-samples.ts --ai",
     "login": "tsx src/login.ts",
     "list": "tsx src/list-chats.ts",
+    "chat:add": "tsx src/chats.ts add",
+    "chat:remove": "tsx src/chats.ts remove",
     "start": "tsx --env-file-if-exists=.env src/bot.ts",
     "test:image": "tsx src/test-image.ts",
     "watch": "tsx src/watch.ts",
