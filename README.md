@@ -1,5 +1,7 @@
 # OpenChat Guard｜LINE 社群詐騙廣告守衛
 
+**繁體中文** | [English](README.en.md)
+
 自動監看 LINE 社群（OpenChat），偵測圖片裡的**導流 QR Code**，刪除廣告訊息並封鎖發文者。
 
 詐騙集團在投資、股票社群最常見的手法：一張「老師帶單、免費飆股群」的文字截圖，加一張加 LINE 群組的 QR Code。這個守衛專門處理這種廣告：
