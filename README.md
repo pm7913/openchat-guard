@@ -41,7 +41,7 @@
 - 一台一直開著的電腦或 VPS。Windows 請到「設定 → 系統 → 電源」，把睡眠設成「永不」。
 
 ```bash
-git clone <這個 repo 的網址>
+git clone https://github.com/pm7913/openchat-guard.git
 cd openchat-guard
 npm ci
 ```

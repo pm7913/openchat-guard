@@ -44,7 +44,7 @@ Other QR codes, such as ordinary websites or share codes from stock apps, are le
 - A computer or VPS that stays on. On Windows, go to Settings → System → Power and set sleep to "Never".
 
 ```bash
-git clone <this repo's URL>
+git clone https://github.com/pm7913/openchat-guard.git
 cd openchat-guard
 npm ci
 ```
