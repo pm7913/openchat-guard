@@ -20,5 +20,7 @@
   "contextMessages": 8,
   "pollIntervalSec": [10, 20],
   "qrBurstWindowSec": 120,
-  "qrBlockAnyQr": false
+  "qrBlockAnyQr": false,
+  "blockTextLinks": true,
+  "extraBlockDomains": []
 }

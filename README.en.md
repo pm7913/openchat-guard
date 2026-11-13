@@ -2,11 +2,11 @@
 
 [繁體中文](README.md) | **English**
 
-Watches a LINE OpenChat (社群) community, detects **QR codes in images that lure members to outside chats**, then deletes the ad and bans the poster.
+Watches a LINE OpenChat (社群) community, detects **QR codes in images and links in text messages that lure members to outside chats**, then deletes the ad and bans the poster.
 
-The most common scam in investment and stock communities is a screenshot advertising a "free VIP stock group" or a "teacher" with daily picks, followed by a QR code that adds you to a LINE group. This guard targets exactly that:
+The most common scam in investment and stock communities is a screenshot advertising a "free VIP stock group" or a "teacher" with daily picks, followed by a QR code that adds you to a LINE group, or simply a short link or group-invite link posted as text. This guard targets exactly that:
 
-- **Runs locally**: QR codes are decoded on your own machine. No AI, no paid API, and images are never sent anywhere else.
+- **Runs locally**: QR codes are decoded and links are matched on your own machine. No AI, no paid API, images are never sent anywhere else, and suspicious links are never opened.
 - **Reacts in seconds**: ads are usually gone a few seconds after they are posted.
 - **Removes the whole post**: other messages the same person sent with the QR code, such as the text screenshot, are deleted too.
 - **Never touches admins**: messages from the admin, co-admins and whitelisted members are always skipped.
@@ -20,9 +20,9 @@ The most common scam in investment and stock communities is a screenshot adverti
 > - **Always create a dedicated bot account.** Never use your own account or the community owner's account.
 > - This project is meant only for protecting communities from scams. **Use it at your own risk**; the authors accept no liability.
 
-## Which QR codes are acted on
+## Which links are acted on
 
-A QR code is acted on if it decodes to one of these links (see [src/qr-policy.ts](src/qr-policy.ts)):
+A QR code that decodes to one of these links, or a text message containing one, is acted on (see [src/qr-policy.ts](src/qr-policy.ts)):
 
 | Type | Examples |
 |---|---|
@@ -32,9 +32,25 @@ A QR code is acted on if it decodes to one of these links (see [src/qr-policy.ts
 | Telegram | `t.me/...`, `telegram.me/...` |
 | WhatsApp | `wa.me/...`, `chat.whatsapp.com/...` |
 | WeChat | links containing `weixin` or `wechat` |
-| URL shorteners (often used to hide the real link) | `reurl.cc`, `bit.ly`, `tinyurl.com`, `ppt.cc`, `lihi`… |
+| URL shorteners (often used to hide the real link) | `reurl.cc`, `bit.ly`, `tinyurl.com`, `ppt.cc`, `url.kr`, `lihi`… |
+| Free domains (anyone can get one instantly; often used for lure pages) | `xxx.eu.cc`, `xxx.us.kg`, `xxx.duckdns.org`, `xxx.trycloudflare.com`… |
+| Domains you add yourself | `extraBlockDomains` in `config.json`; see below |
 
-Other QR codes, such as ordinary websites or share codes from stock apps, are left alone. If your community bans QR codes entirely, set `qrBlockAnyQr` to `true`.
+Other links and QR codes, such as news sites, Yahoo Finance, YouTube or share codes from stock apps, are left alone. If your community bans QR codes entirely, set `qrBlockAnyQr` to `true`.
+
+Text links are recognized even when disguised: full-width characters (`ｌｉｎ．ｅｅ`), an ideographic full stop instead of a dot (`lin。ee`), or zero-width characters in between.
+
+### When a new lure domain shows up
+
+Scammers keep switching domains. When you see a lure link the list doesn't cover, add its domain to `extraBlockDomains` in `config.json` and restart the guard:
+
+```json
+"extraBlockDomains": ["okbin.eu.cc", "scam-site.com"]
+```
+
+- Just the domain is enough; `https://` and paths are optional. Subdomains are included, so `scam-site.com` also covers `www.scam-site.com`.
+- Applies to both QR codes and text links.
+- Messages already posted aren't revisited; it only affects new messages.
 
 ## Setup
 
@@ -125,13 +141,13 @@ Once you're happy with the results, either:
 When an ad is caught, the console shows:
 
 ```
-🚫 導流 QR｜your community｜poster's name｜LINE 加好友／加群連結｜https://line.me/ti/g2/...
+🚫 導流QR｜your community｜poster's name｜LINE 加好友／加群連結｜https://line.me/ti/g2/...
   └ 訊息 2 則：已刪除、已刪除｜成員：已封鎖
 ```
 
-That reads: "lure QR | community | poster | LINE add-friend/join-group link | link", then "2 messages: deleted, deleted | member: banned". If banning fails, the guard falls back to removing the member (已移出 = removed).
+That reads: "lure QR | community | poster | LINE add-friend/join-group link | link", then "2 messages: deleted, deleted | member: banned". Text links show as 「🚫 導流文字連結」 ("lure text link"). If banning fails, the guard falls back to removing the member (已移出 = removed).
 
-Every action is logged to `data/guard-actions.jsonl`, and the flagged image is saved to `data/guard-images/` as evidence. These contain member content, so clean them up regularly.
+Every action is logged to `data/guard-actions.jsonl` (including the text of flagged text messages), and the flagged image is saved to `data/guard-images/` as evidence. These contain member content, so clean them up regularly.
 
 **Note**: run only one program per bot account at a time, and never on two machines at once.
 
@@ -171,6 +187,8 @@ Settings used by the QR guard:
 | `whitelistMemberMids` | Member IDs (starting with `p`) that are never acted on. Admins and co-admins are excluded automatically |
 | `qrBurstWindowSec` | After a catch, also delete the same person's messages from this many seconds (default 120) |
 | `qrBlockAnyQr` | `true` acts on any QR code; `false` only on the lure links listed above (default) |
+| `blockTextLinks` | `true` also acts on lure links in text messages (default); `false` checks images only |
+| `extraBlockDomains` | Your own domains to block; see "When a new lure domain shows up" above (default empty) |
 | `pollIntervalSec` | Range in seconds between catch-up fetches (default `[10, 20]`); see "How messages arrive" below |
 
 The other settings in `config.json` belong to the experimental AI mode and are not used by the QR guard.
@@ -183,6 +201,7 @@ The other settings in `config.json` belong to the experimental AI mode and are n
 | `npm run guard:test` | Acts for real but only removes instead of banning, so a test account can rejoin afterwards |
 | `npm run test:image` | QR decoding test using generated tricky images (tiny QR in a corner, inverted, rotated, blurred, noisy…). No sign-in needed |
 | `npx tsx src/test-image.ts <image or folder>` | Scan your own images, such as ad screenshots from your phone |
+| `npm run test:links` | Text link test: which texts count as lure links. No sign-in needed |
 | `npm run probe` | Diagnostics: checks which OpenChat features work for the signed-in account. Read-only; changes nothing |
 | `npm run typecheck` | For development: checks TypeScript types |
 
@@ -204,8 +223,9 @@ The bot can't delete anything, even when it catches an ad. From the owner's acco
 
 **An ad wasn't deleted**
 
-1. Save the image and scan it with `npx tsx src/test-image.ts <image>`. If no QR code is found, or the link isn't in the [list above](#which-qr-codes-are-acted-on), the guard won't act on it.
-2. Check that the bot account has notifications turned on for the community.
+1. Image ads: save the image and scan it with `npx tsx src/test-image.ts <image>`. If no QR code is found, the guard won't act on it.
+2. The link isn't in the [list above](#which-links-are-acted-on): add its domain to `extraBlockDomains` (see "When a new lure domain shows up"). Delete the earlier message yourself in LINE.
+3. Check that the bot account has notifications turned on for the community.
 
 **A legitimate member's message was deleted**
 
@@ -226,7 +246,8 @@ The full-size image is scanned locally with [zxing-wasm](https://github.com/Sec-
 ## Limitations
 
 - **Private messages**: scammers who message members directly are invisible to the bot. Consider pinning a notice such as "Admins will never message you privately. Anyone inviting you to invest in a private chat is a scammer."
-- **Text-only or link-only ads**: the QR guard only looks at QR codes in images.
+- **Text ads without a link**: for example "add my LINE abc8899" or "DM me for details". The guard only recognizes links; it doesn't judge what the text says.
+- **New lure domains**: a domain that isn't on the list gets through the first time; add it to `extraBlockDomains` yourself.
 - **Deliberately damaged or well-hidden QR codes**: if it can't be decoded, it won't be acted on.
 
 ## Experimental: AI review of text ads

@@ -18,6 +18,7 @@
     "chat:remove": "tsx src/chats.ts remove",
     "start": "tsx --env-file-if-exists=.env src/bot.ts",
     "test:image": "tsx src/test-image.ts",
+    "test:links": "tsx src/test-links.ts",
     "watch": "tsx src/watch.ts",
     "probe": "tsx src/probe.ts",
     "guard": "tsx src/guard-qr.ts",

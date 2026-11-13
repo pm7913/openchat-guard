@@ -1,7 +1,7 @@
 /**
- * QR 守衛：只看圖片裡的 QR Code。解出 LINE 加好友／加群、Telegram、WhatsApp、微信、
- * 短網址等導流連結，就刪除訊息（含同一人前後一起傳的圖）並封鎖或移出發文者。
- * 純本機判斷，不呼叫 AI、不看文字內容。
+ * QR 守衛：看圖片裡的 QR Code 和文字訊息裡的連結。出現 LINE 加好友／加群、Telegram、
+ * WhatsApp、微信、短網址等導流連結，就刪除訊息（含同一人前後一起傳的圖）並封鎖或移出發文者。
+ * 純本機判斷，不呼叫 AI。文字只看連結，不判斷內容（blockTextLinks 為 false 時不看文字）。
  *
  *   npm run guard
  *
@@ -12,7 +12,7 @@
  *   npm run guard:live = --live；npm run guard:test = --live --kick
  *   （PowerShell 會吞掉 npm run 後面的 --，所以用專用指令，不要用 npm run guard -- --live）
  * 管理員、副管理員、whitelistMemberMids 永遠不處理。
- * 紀錄：data/guard-actions.jsonl；被判定的圖存在 data/guard-images/（證據，定期清理）。
+ * 紀錄：data/guard-actions.jsonl（文字訊息的內容也記在這裡）；被判定的圖存在 data/guard-images/（證據，定期清理）。
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -20,7 +20,7 @@ import type { SquareMessage } from "@evex-dev/linejs";
 import { appendLog, claimRunLock, DATA_DIR, loadConfig, requireWatchChats, readJson, writeJson } from "./config.js";
 import { downloadImage, scanQr } from "./image.js";
 import { getChatInfo, isAdminRole, loginSaved, saveAuth } from "./line.js";
-import { judgeQr } from "./qr-policy.js";
+import { judgeQr, judgeText, type QrVerdict } from "./qr-policy.js";
 import { startReceiver } from "./receiver.js";
 
 const cfg = loadConfig();
@@ -45,7 +45,7 @@ log(`已登入：${client.base.profile?.displayName ?? "(未知)"}`);
 log(
   cfg.dryRun
     ? "⚠ 觀察模式（dryRun: true）：只顯示「會怎麼處理」，不會真的刪除或封鎖。"
-    : `🛡 正式模式：偵測到導流 QR Code 會刪除訊息並${cfg.banInsteadOfKick ? "封鎖" : "移出"}發文者。`,
+    : `🛡 正式模式：偵測到導流 QR Code${cfg.blockTextLinks ? "或文字連結" : ""}會刪除訊息並${cfg.banInsteadOfKick ? "封鎖" : "移出"}發文者。`,
 );
 setInterval(() => saveAuth(client), 30 * 60 * 1000).unref();
 
@@ -163,22 +163,46 @@ async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: 
   }
   const qr = (await scanQr(buf)).map((q) => q.text);
   scanned++;
-  const verdict = judgeQr(qr, cfg.qrBlockAnyQr);
+  const verdict = judgeQr(qr, { blockAnyQr: cfg.qrBlockAnyQr, extraDomains: cfg.extraBlockDomains });
   if (!verdict.block) {
     if (qr.length) log(`圖片 QR 未處理｜${name}｜${verdict.reason}｜${qr.join("、")}`);
     return;
   }
-  // 同一人可能有好幾張圖同時在掃描，只處理第一次
+  await punish(chat, sender, name, messageId, verdict, { image: buf });
+}
+
+function inspectText(chat: Chat, text: string, messageId: string, sender: string, name: string): void {
+  const verdict = judgeText(text, { extraDomains: cfg.extraBlockDomains });
+  if (!verdict.block) return;
+  void punish(chat, sender, name, messageId, verdict, { text }).catch((e) =>
+    log(`處理文字連結出錯｜${name}｜${(e as Error).message}`),
+  );
+}
+
+/** 抓到導流：刪除這則和同一人一起傳的訊息，封鎖或移出發文者，留下紀錄。 */
+async function punish(
+  chat: Chat,
+  sender: string,
+  name: string,
+  messageId: string,
+  verdict: QrVerdict,
+  source: { image: Buffer } | { text: string },
+): Promise<void> {
+  const kind = "image" in source ? "QR" : "文字連結";
+  // 同一人可能同時傳了好幾則導流訊息，只處理第一次，其他的只刪除
   if (handled.has(sender)) {
     const r = await deleteMessage(chat, messageId);
-    log(`  └ 同一人的另一張導流圖：${r}`);
+    log(`  └ 同一人的另一則導流${kind}：${r}`);
     return;
   }
   handled.set(sender, now());
   caught++;
 
-  const evidence = path.join(EVIDENCE_DIR, `${new Date().toISOString().replace(/[:.]/g, "-")}_${messageId}.jpg`);
-  writeFileSync(evidence, buf);
+  let evidence: string | undefined;
+  if ("image" in source) {
+    evidence = path.join(EVIDENCE_DIR, `${new Date().toISOString().replace(/[:.]/g, "-")}_${messageId}.jpg`);
+    writeFileSync(evidence, source.image);
+  }
 
   // 這則 + 同一人在時間窗內的其他訊息（一起傳的文字截圖等）
   const windowMs = cfg.qrBurstWindowSec * 1000;
@@ -187,7 +211,7 @@ async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: 
   for (const id of targets) results.push(await deleteMessage(chat, id));
   const memberResult = await removeMember(sender);
 
-  log(`🚫 導流 QR｜${chat.name}｜${name}｜${verdict.reason}｜${verdict.text}`);
+  log(`🚫 導流${kind}｜${chat.name}｜${name}｜${verdict.reason}｜${verdict.text}`);
   log(`  └ 訊息 ${targets.size} 則：${results.join("、")}｜成員：${memberResult}`);
   appendLog("guard-actions.jsonl", {
     at: new Date().toISOString(),
@@ -195,13 +219,15 @@ async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: 
     chat: chat.name,
     senderMid: sender,
     senderName: name,
+    source: "image" in source ? "image" : "text",
     reason: verdict.reason,
     qr: verdict.text,
+    ...("text" in source ? { text: source.text } : {}),
     triggerMessageId: messageId,
     deletedMessageIds: [...targets],
     deleteResults: results,
     memberResult,
-    evidence: path.relative(DATA_DIR, evidence),
+    ...(evidence ? { evidence: path.relative(DATA_DIR, evidence) } : {}),
   });
 }
 
@@ -235,13 +261,16 @@ const stats = await startReceiver({
       return;
     }
 
-    if (String(raw.contentType) === "IMAGE") {
+    const contentType = String(raw.contentType);
+    if (contentType === "IMAGE") {
       void inspectImage(chat, m, sender, name).catch((e) => log(`檢查圖片出錯｜${name}｜${(e as Error).message}`));
+    } else if (cfg.blockTextLinks && (contentType === "NONE" || contentType === "0") && raw.text) {
+      inspectText(chat, raw.text, id, sender, name);
     }
   },
 });
 
-log("開始守護。只檢查圖片裡的 QR Code。按 Ctrl+C 停止。");
+log(`開始守護。檢查圖片裡的 QR Code${cfg.blockTextLinks ? "和文字訊息裡的導流連結" : ""}。按 Ctrl+C 停止。`);
 
 process.on("SIGINT", () => {
   saveAuth(client);

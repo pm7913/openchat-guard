@@ -50,6 +50,10 @@ export interface GuardConfig {
   qrBurstWindowSec: number;
   /** QR 守衛：true = 任何 QR Code 都處理；false = 只處理 LINE／Telegram／WhatsApp／微信／短網址。 */
   qrBlockAnyQr: boolean;
+  /** QR 守衛：true = 文字訊息裡的導流連結（LINE／Telegram／WhatsApp／微信／短網址）也處理；false = 只看圖片。 */
+  blockTextLinks: boolean;
+  /** QR 守衛：自訂要封鎖的網域（含子網域），例如 "okbin.eu.cc"、"scam-site.com"。QR Code 和文字連結都適用。 */
+  extraBlockDomains: string[];
 }
 
 const DEFAULTS: GuardConfig = {
@@ -71,6 +75,8 @@ const DEFAULTS: GuardConfig = {
   pollIntervalSec: [10, 20],
   qrBurstWindowSec: 120,
   qrBlockAnyQr: false,
+  blockTextLinks: true,
+  extraBlockDomains: [],
 };
 
 const CONFIG_FILE = path.join(PROJECT_DIR, "config.json");
