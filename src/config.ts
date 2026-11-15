@@ -1,10 +1,19 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** 專案根目錄（src 的上一層）。不管從哪裡執行，資料都存在專案裡。 */
 export const PROJECT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const DATA_DIR = path.join(PROJECT_DIR, "data");
+
+/**
+ * 資料夾和設定檔位置。平常不用管，用 Docker 時才需要指定，讓它們落在掛載的 volume 裡。
+ *   OPENCHAT_GUARD_DATA    登入資料、紀錄、證據圖（預設：專案裡的 data/）
+ *   OPENCHAT_GUARD_CONFIG  設定檔（預設：專案裡的 config.json）
+ */
+export const DATA_DIR = process.env.OPENCHAT_GUARD_DATA
+  ? path.resolve(process.env.OPENCHAT_GUARD_DATA)
+  : path.join(PROJECT_DIR, "data");
 
 export interface GuardConfig {
   /** true = 只記錄「會怎麼處理」，不真的刪除或踢人。上線前先觀察幾天。 */
@@ -79,14 +88,17 @@ const DEFAULTS: GuardConfig = {
   extraBlockDomains: [],
 };
 
-const CONFIG_FILE = path.join(PROJECT_DIR, "config.json");
+const CONFIG_FILE = process.env.OPENCHAT_GUARD_CONFIG
+  ? path.resolve(process.env.OPENCHAT_GUARD_CONFIG)
+  : path.join(PROJECT_DIR, "config.json");
 
 /** 第一次執行：從範本建立自己的 config.json（config.json 不會上傳到 git）。回傳檔案是否存在。 */
 function ensureConfigFile(file: string): boolean {
   const example = path.join(PROJECT_DIR, "config.example.json");
   if (!fs.existsSync(file) && fs.existsSync(example)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true }); // 設定檔放在 volume 裡時，資料夾可能還不存在
     fs.copyFileSync(example, file);
-    console.log("已從 config.example.json 建立 config.json，之後請改這個檔案。");
+    console.log(`已從 config.example.json 建立 ${file}，之後請改這個檔案。`);
   }
   return fs.existsSync(file);
 }
@@ -143,6 +155,14 @@ export function requireWatchChats(cfg: GuardConfig): void {
 
 const RUN_LOCK = path.join(DATA_DIR, "running.json");
 
+interface RunLock {
+  pid: number;
+  /** 電腦或容器名稱。不一樣就代表是別處跑的，這裡查不到它的程式編號。 */
+  host?: string;
+  script: string;
+  startedAt: string;
+}
+
 /**
  * 記下「守衛正在執行」，程式結束時自動清掉。
  * 讓其他指令（例如 chat:add）知道不要同時用同一個帳號登入。
@@ -150,7 +170,8 @@ const RUN_LOCK = path.join(DATA_DIR, "running.json");
 export function claimRunLock(): void {
   ensureDataDir();
   const script = path.basename(process.argv[1] ?? "");
-  fs.writeFileSync(RUN_LOCK, JSON.stringify({ pid: process.pid, script, startedAt: new Date().toISOString() }), "utf-8");
+  const lock: RunLock = { pid: process.pid, host: os.hostname(), script, startedAt: new Date().toISOString() };
+  fs.writeFileSync(RUN_LOCK, JSON.stringify(lock), "utf-8");
   process.on("exit", () => {
     try {
       const lock = JSON.parse(fs.readFileSync(RUN_LOCK, "utf-8")) as { pid?: number };
@@ -162,13 +183,16 @@ export function claimRunLock(): void {
 }
 
 /** 正在執行的守衛（guard、watch 或 start）。沒有在執行就回傳 null。 */
-export function findRunningGuard(): { pid: number; script: string; startedAt: string } | null {
-  let lock: { pid: number; script: string; startedAt: string };
+export function findRunningGuard(): RunLock | null {
+  let lock: RunLock;
   try {
     lock = JSON.parse(fs.readFileSync(RUN_LOCK, "utf-8"));
   } catch {
     return null; // 沒有紀錄
   }
+  // 別台機器或別的容器寫的紀錄：這裡查不到它的程式編號，保守當成還在執行
+  // （守衛正常結束會自己刪掉這個檔案；被強制砍掉才會留下來，手動刪除 data/running.json 即可）
+  if (lock.host && lock.host !== os.hostname()) return lock;
   try {
     process.kill(lock.pid, 0); // 只檢查程式還在不在，不會真的停掉它
     return lock;

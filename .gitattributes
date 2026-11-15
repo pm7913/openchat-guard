@@ -1,4 +1,6 @@
 * text=auto eol=lf
 *.bat text eol=crlf
+# 進入點腳本一定要是 LF，CRLF 會讓 Linux 找不到直譯器
+*.sh text eol=lf
 *.png binary
 *.jpg binary

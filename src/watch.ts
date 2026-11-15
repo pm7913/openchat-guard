@@ -138,10 +138,13 @@ await startReceiver({
 
 log(`開始接收。每 ${STATS_EVERY_MIN} 分鐘回報一次推播／補漏統計。`);
 
-process.on("SIGINT", () => {
+// SIGINT = Ctrl+C；SIGTERM = docker stop、systemd、pm2 停止服務
+const shutdown = () => {
   saveAuth(client);
   writeJson("watch-state.json", state);
   const mins = ((Date.now() - started) / 60000).toFixed(0);
   log(`已停止。共跑 ${mins} 分鐘，收到 ${total} 則訊息；圖片 ${images} 張（含 QR ${imagesWithQr} 張、失敗 ${imageFailures} 張）。紀錄在 data/watch-messages.jsonl、data/watch-images/`);
   process.exit(0);
-});
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

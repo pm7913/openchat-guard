@@ -66,7 +66,9 @@ export async function getChatInfo(client: Client, mid: string): Promise<ChatInfo
 export async function loginSaved(): Promise<Client> {
   const auth = readJson<{ authToken?: string }>("auth.json", {});
   if (!auth.authToken) {
-    throw new Error("還沒登入。請先執行：npm run login");
+    // 這些都是指令列工具，直接說明怎麼做就結束，不要丟出一大串堆疊訊息
+    console.error("還沒登入。請先執行：npm run login");
+    process.exit(1);
   }
   const client = await loginWithAuthToken(auth.authToken, { device: DEVICE, storage: storage() });
   saveAuth(client);

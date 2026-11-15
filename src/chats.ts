@@ -43,8 +43,10 @@ if (action === "remove") {
   // 新增要登入確認聊天室；同一個帳號不能跟守衛同時登入
   const running = findRunningGuard();
   if (running) {
-    console.error(`守衛正在執行中（${running.script}，PID ${running.pid}），同一個帳號不能同時登入兩個程式。`);
-    console.error("請先停止守衛（按 Ctrl+C 或關掉 start-guard.bat 的視窗），新增完再重新啟動。");
+    const where = running.host && running.host !== (await import("node:os")).hostname() ? `在 ${running.host} ` : "";
+    console.error(`守衛${where}正在執行中（${running.script}，PID ${running.pid}），同一個帳號不能同時登入兩個程式。`);
+    console.error("請先停止守衛（按 Ctrl+C、關掉 start-guard.bat 的視窗，或 docker compose stop），新增完再重新啟動。");
+    console.error("如果守衛其實已經停了（例如被強制關掉），刪掉 data/running.json 再試一次。");
     process.exit(1);
   }
 

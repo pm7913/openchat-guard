@@ -272,9 +272,12 @@ const stats = await startReceiver({
 
 log(`開始守護。檢查圖片裡的 QR Code${cfg.blockTextLinks ? "和文字訊息裡的導流連結" : ""}。按 Ctrl+C 停止。`);
 
-process.on("SIGINT", () => {
+// SIGINT = Ctrl+C；SIGTERM = docker stop、systemd、pm2 停止服務
+const shutdown = () => {
   saveAuth(client);
   writeJson("guard-state.json", state);
   log(`已停止。掃描圖片 ${scanned} 張，抓到導流 ${caught} 次（推播 ${stats.push} 則、補漏 ${stats.poll} 則）。`);
   process.exit(0);
-});
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

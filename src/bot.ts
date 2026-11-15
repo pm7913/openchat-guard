@@ -396,9 +396,12 @@ await startReceiver({
 });
 
 
-process.on("SIGINT", () => {
+// SIGINT = Ctrl+C；SIGTERM = docker stop、systemd、pm2 停止服務
+const shutdown = () => {
   saveAuth(client);
   saveState();
   log("已停止。");
   process.exit(0);
-});
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

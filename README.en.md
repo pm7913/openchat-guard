@@ -154,7 +154,7 @@ Every action is logged to `data/guard-actions.jsonl` (including the text of flag
 ### Keep it running
 
 - **Windows**: double-click `start-guard.bat`. It restarts the guard automatically if it crashes. Whether it actually acts still depends on `dryRun`. To stop it, close the window.
-- **VPS (Linux)**: use [pm2](https://pm2.keymetrics.io) or systemd, for example:
+- **VPS (Linux)**: [Docker](#running-with-docker-vps) is recommended, or use [pm2](https://pm2.keymetrics.io) / systemd, for example:
   ```bash
   pm2 start npm --name openchat-guard -- run guard
   ```
@@ -162,6 +162,96 @@ Every action is logged to `data/guard-actions.jsonl` (including the text of flag
 If you started it with `npm run guard`, press `Ctrl+C` in that window to stop. The guard saves its read progress on the way out, and the next run catches up on messages posted while it was stopped.
 
 Changes to `config.json` take effect after a restart.
+
+## Running with Docker (VPS)
+
+> [!WARNING]
+> **Signing in from a datacenter IP abroad makes the account easier to flag.** The account is already at risk of suspension; signing in from a country it has never been used in, and from a datacenter IP, makes verification or a ban more likely. If you use a VPS, prefer one in Taiwan or Japan.
+
+1GB of RAM is enough; 512MB is not recommended (scanning large images spikes memory). No inbound ports are needed — the guard only makes outbound connections to LINE.
+
+The config file and login data both live in `./data`, so recreating the container doesn't lose them.
+
+### 1. Get the code and create the data folder first
+
+```bash
+git clone https://github.com/pm7913/openchat-guard.git
+cd openchat-guard
+mkdir -p data
+```
+
+Don't skip `mkdir -p data`. Creating it yourself makes the files inside belong to you, so you can edit `data/config.json` directly on the host. Skipping it still works, but those files end up needing `sudo` to edit.
+
+### 2. Sign in for the first time
+
+```bash
+docker compose run --rm guard npm run login
+```
+
+The QR code is drawn right in the output; scan it with the bot account's phone, then enter the verification code on the phone. Nothing is typed into the container, so `docker compose up -d` followed by `docker compose logs -f` works too — but the QR code expires in a few minutes, so the command above is more reliable.
+
+If your phone can't read it, `./data/login-qr.png` is the same code as an image.
+
+### 3. Choose the chats to guard
+
+```bash
+docker compose run --rm guard npm run list
+```
+
+The first run creates `./data/config.json` from the template. Add a chat:
+
+```bash
+docker compose run --rm guard npm run chat:add <chat ID>
+```
+
+You can also edit `./data/config.json` directly. Leave `dryRun` at `true` for a few days first, then set it to `false` once you're happy with the results.
+
+### 4. Start
+
+```bash
+docker compose up -d --build
+```
+
+| Task | Command |
+|---|---|
+| Watch the output | `docker compose logs -f` |
+| Stop | `docker compose stop` |
+| Restart (after a config change) | `docker compose restart` |
+| Update | `git pull` then `docker compose up -d --build` |
+
+**Stop the guard with `docker compose stop` before signing in, listing chats, or adding/removing chats** — one account can only be signed in by one program at a time. `chat:add` refuses to run while the guard is up, but `login` does not, and it will knock the guard offline.
+
+The timezone defaults to `Asia/Taipei`; change `TZ` in `docker-compose.yml`.
+
+`./data/guard-images/` grows over time, so clean it up regularly.
+
+### Auto-deploy (updates on every push to GitHub)
+
+To have the VPS follow GitHub automatically, run this once on the VPS:
+
+```bash
+git clone https://github.com/pm7913/openchat-guard.git /tmp/openchat-guard-install
+bash /tmp/openchat-guard-install/ops/install-auto-deploy.sh
+```
+
+A systemd timer then checks GitHub every 2 minutes. On a new commit it fetches, builds an image, **runs the tests in a container with no network**, swaps the container, and waits for 「開始守護」 ("guarding started") in the log. It never switches if any step fails, and a failed health check rolls back to the last working version. Commits that only touch `.md` files don't trigger a redeploy.
+
+| Command | Purpose |
+|---|---|
+| `openchat-guard-deploy status` | Current version, remote version, recent deploy log |
+| `openchat-guard-deploy now` | Check and deploy immediately instead of waiting |
+| `openchat-guard-deploy rollback` | Go back to the last version that deployed successfully |
+
+**Telegram notifications** (optional): put these two lines in `~/openchat-guard/.env` to get a message on success, failure and rollback. Without them nothing is sent and everything else works as usual. The file never enters git.
+
+```
+TELEGRAM_BOT_TOKEN=your bot token
+TELEGRAM_CHAT_ID=your chat id
+```
+
+The token is equivalent to a password for your bot — keep it out of the repo and don't share it.
+
+If you'd rather use plain `docker run`, two environment variables set the locations: `OPENCHAT_GUARD_DATA` (the data folder) and `OPENCHAT_GUARD_CONFIG` (the config file). Without them, the project's own `data/` and `config.json` are used.
 
 ### Updating
 
@@ -267,7 +357,8 @@ Everything is stored in the project's `data/` folder, which is excluded from git
 | `auth.json`, `line-storage.json` | Bot account login data. **Treat like a password; never share** |
 | `guard-actions.jsonl`, `guard-images/` | QR guard action log and evidence images |
 | `guard-state.json` | Read progress |
-| `running.json` | Marks that the guard is running so `chat:add` can tell; removed automatically when the guard exits |
+| `running.json` | Marks that the guard is running so `chat:add` can tell; removed automatically on a clean exit. It only lingers if the guard was killed — delete it by hand if so |
+| `config.json` | Only when running under Docker does the config file live here |
 | `watch-*` | Receive-only test logs and images |
 
 ## License

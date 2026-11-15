@@ -1,0 +1,29 @@
+# VPS 上長期執行守衛。設定和登入資料都放在 ./data（跟著這個檔案的資料夾）。
+#
+#   第一次登入：docker compose run --rm guard npm run login
+#   查聊天室：  docker compose run --rm guard npm run list
+#   啟動：      docker compose up -d
+#   看畫面：    docker compose logs -f
+#   停止：      docker compose down
+#
+# 同一個機器人帳號同時只能跑一個程式，所以不要把這個服務擴成多份，
+# 也不要在守衛執行中另外跑 login 或 list（會把守衛擠下線）。
+services:
+  guard:
+    build: .
+    image: openchat-guard
+    container_name: openchat-guard
+    restart: unless-stopped
+    init: true
+    # 程式只主動連 LINE，不需要對外開任何 port
+    environment:
+      TZ: Asia/Taipei
+    volumes:
+      - ./data:/data
+    # 當掉重啟後，畫面保留最近的紀錄就好，避免日誌把硬碟塞爆
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 20s

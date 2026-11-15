@@ -151,7 +151,7 @@ npm run guard
 ### 讓它一直跑
 
 - **Windows**：點兩下 `start-guard.bat`，程式當掉會自動重啟。是否真的動手一樣由 `dryRun` 決定。要停止就直接關掉這個視窗。
-- **VPS（Linux）**：用 [pm2](https://pm2.keymetrics.io) 或 systemd，例如：
+- **VPS（Linux）**：建議用 [Docker](#用-docker-跑vps)，或用 [pm2](https://pm2.keymetrics.io)、systemd，例如：
   ```bash
   pm2 start npm --name openchat-guard -- run guard
   ```
@@ -159,6 +159,96 @@ npm run guard
 直接用 `npm run guard` 啟動的，在視窗裡按 `Ctrl+C` 停止，會順便存好讀取進度。下次啟動會補處理停機期間的訊息。
 
 改了 `config.json` 之後要重新啟動才會生效。
+
+## 用 Docker 跑（VPS）
+
+> [!WARNING]
+> **從國外機房的 IP 登入，帳號更容易被盯上。** 這個帳號本來就有被 LINE 停用的風險，再從一個跟平常完全不同的國家、而且是資料中心的 IP 登入，更容易觸發驗證或停權。要用 VPS 的話，建議挑**台灣或日本**的機房。
+
+規格 1GB 記憶體就夠，不建議 512MB（掃描大張圖片時記憶體會衝高）。不需要對外開任何 port，程式只會主動連 LINE。
+
+設定檔和登入資料都放在 `./data`，重建容器不會不見。
+
+### 1. 取得程式並先建好 data 資料夾
+
+```bash
+git clone https://github.com/pm7913/openchat-guard.git
+cd openchat-guard
+mkdir -p data
+```
+
+`mkdir -p data` 不要省略。先自己建立，裡面的檔案才會屬於你，之後在主機上才能直接編輯 `data/config.json`。忘了建也不會壞，程式照樣跑得起來，只是那些檔案會變成要用 `sudo` 才能改。
+
+### 2. 第一次登入
+
+```bash
+docker compose run --rm guard npm run login
+```
+
+QR Code 會直接畫在畫面上，用機器人帳號的手機掃，再在手機上輸入畫面顯示的認證碼。整個過程不用打字，所以也可以先 `docker compose up -d` 再用 `docker compose logs -f` 看。但 QR Code 幾分鐘就過期，用上面這個指令比較即時。
+
+掃不到的話，`./data/login-qr.png` 是同一張圖，可以直接打開來掃。
+
+### 3. 設定要守護的聊天室
+
+```bash
+docker compose run --rm guard npm run list
+```
+
+第一次執行會從範本建立 `./data/config.json`。把聊天室加進去：
+
+```bash
+docker compose run --rm guard npm run chat:add <聊天室 ID>
+```
+
+`./data/config.json` 也可以直接用編輯器改。觀察模式（`dryRun`）維持 `true` 先跑幾天，確認判斷沒問題再改成 `false`。
+
+### 4. 啟動
+
+```bash
+docker compose up -d --build
+```
+
+| 要做什麼 | 指令 |
+|---|---|
+| 看畫面 | `docker compose logs -f` |
+| 停止 | `docker compose stop` |
+| 重新啟動（改完設定） | `docker compose restart` |
+| 更新到新版 | `git pull` 然後 `docker compose up -d --build` |
+
+**登入、查聊天室、增減聊天室都要先 `docker compose stop`**，因為同一個帳號同時只能登入一個程式。守衛執行中硬跑會被擋下來（`chat:add` 會提醒你），但 `login` 不會擋，會把守衛擠下線。
+
+時區預設是 `Asia/Taipei`，在 `docker-compose.yml` 的 `TZ` 改。
+
+`./data/guard-images/` 會一直長大，記得定期清理。
+
+### 自動部署（推到 GitHub 就更新）
+
+想讓 VPS 自動跟上 GitHub 上的新版本，在 VPS 上執行一次：
+
+```bash
+git clone https://github.com/pm7913/openchat-guard.git /tmp/openchat-guard-install
+bash /tmp/openchat-guard-install/ops/install-auto-deploy.sh
+```
+
+裝好之後 systemd 每 2 分鐘檢查一次 GitHub，有新 commit 就：抓下來 → 建映像 → **在沒有網路的容器裡跑測試** → 換新容器 → 等日誌出現「開始守護」。中間任何一步失敗都不會換過去；健康檢查失敗還會自動回退到上一個正常版本。只改 `.md` 的 commit 不會重新部署。
+
+| 指令 | 用途 |
+|---|---|
+| `openchat-guard-deploy status` | 目前版本、遠端版本、最近的部署紀錄 |
+| `openchat-guard-deploy now` | 不等 2 分鐘，立刻檢查並部署 |
+| `openchat-guard-deploy rollback` | 回到上一個成功部署的版本 |
+
+**Telegram 通知**（選用）：在 `~/openchat-guard/.env` 填這兩行，部署成功、失敗、回退時都會通知。沒填就不通知，其他功能照常。這個檔案不會進 git。
+
+```
+TELEGRAM_BOT_TOKEN=你的 bot token
+TELEGRAM_CHAT_ID=你的 chat id
+```
+
+Token 跟你的 bot 綁在一起，等於密碼，不要放進 repo 或分享出去。
+
+不用 compose、想自己跑 `docker run` 的話，用這兩個環境變數指定位置：`OPENCHAT_GUARD_DATA`（資料夾）和 `OPENCHAT_GUARD_CONFIG`（設定檔）。沒設定時就用專案裡的 `data/` 和 `config.json`。
 
 ### 更新到新版
 
@@ -264,7 +354,8 @@ QR 守衛用到的設定：
 | `auth.json`、`line-storage.json` | 機器人帳號登入資料，**等同帳號密碼，不可外傳** |
 | `guard-actions.jsonl`、`guard-images/` | QR 守衛的處理紀錄與證據圖 |
 | `guard-state.json` | 讀取進度 |
-| `running.json` | 守衛執行中的標記，讓 `chat:add` 知道守衛還在跑；守衛結束時會自動刪除 |
+| `running.json` | 守衛執行中的標記，讓 `chat:add` 知道守衛還在跑；守衛正常結束時會自動刪除。守衛被強制關掉才會留下來，這時手動刪掉它即可 |
+| `config.json` | 只有用 Docker 時設定檔才會放在這裡 |
 | `watch-*` | 收訊測試的紀錄與圖片 |
 
 ## 授權
