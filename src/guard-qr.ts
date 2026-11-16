@@ -270,14 +270,38 @@ const stats = await startReceiver({
   },
 });
 
-log(`開始守護。檢查圖片裡的 QR Code${cfg.blockTextLinks ? "和文字訊息裡的導流連結" : ""}。按 Ctrl+C 停止。`);
+// Ctrl+C 要在幾秒內按第二次才會停止，免得想複製日誌時誤按就把守衛停掉。
+// 只在有人看著的視窗裡這樣做：pm2 停止服務送的也是 SIGINT，沒有視窗時要馬上停，才來得及存檔。
+// Windows 上用 npm 啟動時例外：第一下 Ctrl+C 會讓 npm 自己先結束，守衛變成沒人管的背景程式，
+// start-guard.bat 也會以為程式結束了，所以維持按一次就停。start-guard.bat 直接用 node 啟動，沒有這個問題。
+const CONFIRM_WINDOW_MS = 3000;
+// 同一下 Ctrl+C 可能被 npm、tsx 轉送而重複收到，間隔很短的算同一下
+const SAME_PRESS_MS = 250;
+const confirmCtrlC = Boolean(process.stdin.isTTY) && !(process.platform === "win32" && process.env.npm_lifecycle_event);
 
-// SIGINT = Ctrl+C；SIGTERM = docker stop、systemd、pm2 停止服務
+log(
+  `開始守護。檢查圖片裡的 QR Code${cfg.blockTextLinks ? "和文字訊息裡的導流連結" : ""}。` +
+    (confirmCtrlC ? `要停止請在 ${CONFIRM_WINDOW_MS / 1000} 秒內按兩次 Ctrl+C。` : "按 Ctrl+C 停止。"),
+);
+
 const shutdown = () => {
   saveAuth(client);
   writeJson("guard-state.json", state);
   log(`已停止。掃描圖片 ${scanned} 張，抓到導流 ${caught} 次（推播 ${stats.push} 則、補漏 ${stats.poll} 則）。`);
   process.exit(0);
 };
-process.on("SIGINT", shutdown);
+
+let lastCtrlC = 0;
+const onCtrlC = () => {
+  if (!confirmCtrlC) return shutdown();
+  const t = now();
+  const gap = t - lastCtrlC;
+  if (gap < SAME_PRESS_MS) return;
+  if (gap <= CONFIRM_WINDOW_MS) return shutdown();
+  lastCtrlC = t;
+  log(`收到 Ctrl+C。守衛還在執行，要停止請在 ${CONFIRM_WINDOW_MS / 1000} 秒內再按一次。`);
+};
+
+// SIGINT = Ctrl+C（pm2 停止服務也是送這個）；SIGTERM = docker stop、systemd，一律馬上停
+process.on("SIGINT", onCtrlC);
 process.on("SIGTERM", shutdown);

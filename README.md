@@ -150,13 +150,13 @@ npm run guard
 
 ### 讓它一直跑
 
-- **Windows**：點兩下 `start-guard.bat`，程式當掉會自動重啟。是否真的動手一樣由 `dryRun` 決定。要停止就直接關掉這個視窗。
+- **Windows**：點兩下 `start-guard.bat`，程式當掉會自動重啟。是否真的動手一樣由 `dryRun` 決定。要停止就在 3 秒內按兩次 `Ctrl+C`，或直接關掉這個視窗。按一次 `Ctrl+C` 只會提示，不會停止，免得想複製日誌時誤按就把守衛停掉。
 - **VPS（Linux）**：建議用 [Docker](#用-docker-跑vps)，或用 [pm2](https://pm2.keymetrics.io)、systemd，例如：
   ```bash
   pm2 start npm --name openchat-guard -- run guard
   ```
 
-直接用 `npm run guard` 啟動的，在視窗裡按 `Ctrl+C` 停止，會順便存好讀取進度。下次啟動會補處理停機期間的訊息。
+直接用 `npm run guard` 啟動的，在視窗裡按 `Ctrl+C` 停止，會順便存好讀取進度。下次啟動會補處理停機期間的訊息。在 Linux 終端機裡同樣要 3 秒內按兩次；在 Windows 上用 npm 啟動則是按一次就停，因為 npm 收到第一下 `Ctrl+C` 就會自己先結束。pm2、systemd、`docker stop` 停止服務時都是馬上停。
 
 改了 `config.json` 之後要重新啟動才會生效。
 

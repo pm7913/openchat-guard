@@ -153,13 +153,13 @@ Every action is logged to `data/guard-actions.jsonl` (including the text of flag
 
 ### Keep it running
 
-- **Windows**: double-click `start-guard.bat`. It restarts the guard automatically if it crashes. Whether it actually acts still depends on `dryRun`. To stop it, close the window.
+- **Windows**: double-click `start-guard.bat`. It restarts the guard automatically if it crashes. Whether it actually acts still depends on `dryRun`. To stop it, press `Ctrl+C` twice within 3 seconds, or close the window. A single `Ctrl+C` only prints a hint, so an accidental press while copying the log won't stop the guard.
 - **VPS (Linux)**: [Docker](#running-with-docker-vps) is recommended, or use [pm2](https://pm2.keymetrics.io) / systemd, for example:
   ```bash
   pm2 start npm --name openchat-guard -- run guard
   ```
 
-If you started it with `npm run guard`, press `Ctrl+C` in that window to stop. The guard saves its read progress on the way out, and the next run catches up on messages posted while it was stopped.
+If you started it with `npm run guard`, press `Ctrl+C` in that window to stop. The guard saves its read progress on the way out, and the next run catches up on messages posted while it was stopped. In a Linux terminal it also takes two presses within 3 seconds; on Windows a single press stops it when launched through npm, because npm exits on the first `Ctrl+C` by itself. Stopping via pm2, systemd or `docker stop` is always immediate.
 
 Changes to `config.json` take effect after a restart.
 
