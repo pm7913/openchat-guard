@@ -30,12 +30,22 @@
 | WhatsApp | `wa.me/...`、`chat.whatsapp.com/...` |
 | 微信 | 含 `weixin`、`wechat` 的連結 |
 | 短網址（常用來藏真正的連結） | `reurl.cc`、`bit.ly`、`tinyurl.com`、`ppt.cc`、`url.kr`、`lihi`… |
+| 多連結導流頁（常用來藏 LINE／群組連結） | `linktr.ee`、`portaly.cc` |
+| 清單外的短網址跳轉到上面任何一種 | 例如 `xx.bz/abc` 跳到 `line.me/...`，見下方「清單外的短網址」 |
 | 免費網域（任何人都能馬上申請，常用來架導流頁） | `xxx.eu.cc`、`xxx.us.kg`、`xxx.duckdns.org`、`xxx.trycloudflare.com`… |
 | 你自己加的網域 | `config.json` 的 `extraBlockDomains`，見下方 |
 
 其他連結和 QR Code（例如新聞、Yahoo 股市、YouTube、股票 App 的分享碼）不處理。如果你的社群規定「不准貼任何 QR Code」，可以把 `qrBlockAnyQr` 設成 `true`。
 
 文字連結被刻意變形也認得出來，例如全形字（`ｌｉｎ．ｅｅ`）、用句號代替點（`lin。ee`）、中間夾零寬字元。
+
+### 清單外的短網址
+
+看起來像短網址（網域短、路徑短、不是新聞或股市等大網站）但不在清單裡的連結，守衛會自己去問一次它跳到哪裡：只讀回應標頭裡的跳轉目標（先用 HEAD，網站不接受才改 GET），不載入網頁，最多追 3 層、每層等 2 秒。跳到 LINE、Telegram、WhatsApp、微信、清單上的短網址或你自己封鎖的網域，就照樣處理。
+
+- 這會讓 VPS 對外連到發文者貼的網址。不想要的話，把 `resolveShortLinks` 設成 `false`。
+- 不會連到內網或本機位址。
+- 同一條連結 10 分鐘內只問一次；逾時或連不上的不算數，下次還會再問。
 
 ### 遇到新的導流網域
 
@@ -276,6 +286,7 @@ QR 守衛用到的設定：
 | `qrBlockAnyQr` | `true` 任何 QR Code 都處理；`false` 只處理上面列的導流連結（預設） |
 | `blockTextLinks` | `true` 文字訊息裡的導流連結也處理（預設）；`false` 只看圖片 |
 | `extraBlockDomains` | 自訂要封鎖的網域，見上方「遇到新的導流網域」（預設空的） |
+| `resolveShortLinks` | `true` 清單外的疑似短網址會追一次跳轉目標（預設），見上方「清單外的短網址」；`false` 不對外連線 |
 | `pollIntervalSec` | 補漏間隔的秒數範圍（預設 `[10, 20]`），見下方「怎麼收到訊息」 |
 
 `config.json` 裡其他設定是實驗性 AI 模式用的，QR 守衛用不到。
@@ -334,7 +345,7 @@ QR 守衛用到的設定：
 
 - **私訊**：詐騙集團私訊成員，機器人看不到。建議在社群公告「管理員不會私訊你，私訊邀你投資都是詐騙」。
 - **沒有連結的文字廣告**：例如「加賴 abc8899」「私我拿資料」。守衛只認連結，不判斷文字內容。
-- **新的導流網域**：清單沒有的網域第一次出現時會漏掉，要自己加進 `extraBlockDomains`。
+- **新的導流網域**：清單沒有的網域第一次出現時會漏掉，要自己加進 `extraBlockDomains`。（新網域如果最後又跳到 LINE 等連結，追跳轉時會抓到。）
 - **QR Code 被刻意破壞或藏得很深**：辨識不出來就不會處理。
 
 ## 實驗功能：AI 判斷文字廣告

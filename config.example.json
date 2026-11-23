@@ -22,5 +22,6 @@
   "qrBurstWindowSec": 120,
   "qrBlockAnyQr": false,
   "blockTextLinks": true,
-  "extraBlockDomains": []
+  "extraBlockDomains": [],
+  "resolveShortLinks": true
 }

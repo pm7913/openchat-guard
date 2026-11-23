@@ -63,6 +63,8 @@ export interface GuardConfig {
   blockTextLinks: boolean;
   /** QR 守衛：自訂要封鎖的網域（含子網域），例如 "okbin.eu.cc"、"scam-site.com"。QR Code 和文字連結都適用。 */
   extraBlockDomains: string[];
+  /** QR 守衛：true = 遇到不在清單裡的疑似短網址時，只發輕量 HEAD 請求讀 Location 標頭追蹤跳轉（不載入網頁），跳往導流網址就封鎖。 */
+  resolveShortLinks: boolean;
 }
 
 const DEFAULTS: GuardConfig = {
@@ -86,6 +88,7 @@ const DEFAULTS: GuardConfig = {
   qrBlockAnyQr: false,
   blockTextLinks: true,
   extraBlockDomains: [],
+  resolveShortLinks: true,
 };
 
 const CONFIG_FILE = process.env.OPENCHAT_GUARD_CONFIG

@@ -33,12 +33,22 @@ A QR code that decodes to one of these links, or a text message containing one, 
 | WhatsApp | `wa.me/...`, `chat.whatsapp.com/...` |
 | WeChat | links containing `weixin` or `wechat` |
 | URL shorteners (often used to hide the real link) | `reurl.cc`, `bit.ly`, `tinyurl.com`, `ppt.cc`, `url.kr`, `lihi`… |
+| Link-in-bio pages (often used to hide LINE/group links) | `linktr.ee`, `portaly.cc` |
+| Unlisted short links that redirect to any of the above | e.g. `xx.bz/abc` redirecting to `line.me/...`; see "Unlisted short links" below |
 | Free domains (anyone can get one instantly; often used for lure pages) | `xxx.eu.cc`, `xxx.us.kg`, `xxx.duckdns.org`, `xxx.trycloudflare.com`… |
 | Domains you add yourself | `extraBlockDomains` in `config.json`; see below |
 
 Other links and QR codes, such as news sites, Yahoo Finance, YouTube or share codes from stock apps, are left alone. If your community bans QR codes entirely, set `qrBlockAnyQr` to `true`.
 
 Text links are recognized even when disguised: full-width characters (`ｌｉｎ．ｅｅ`), an ideographic full stop instead of a dot (`lin。ee`), or zero-width characters in between.
+
+### Unlisted short links
+
+For a link that looks like a shortener (short domain, short path, not a big news or finance site) but isn't on the list, the guard asks once where it redirects: it reads only the redirect target from the response headers (HEAD first, GET if the site refuses HEAD) without loading the page, following at most 3 hops with a 2-second timeout each. If it lands on LINE, Telegram, WhatsApp, WeChat, a listed shortener or one of your blocked domains, it is acted on as usual.
+
+- This makes the VPS connect to URLs that members post. Set `resolveShortLinks` to `false` if you don't want that.
+- It never connects to private or local addresses.
+- Each link is checked at most once per 10 minutes; timeouts and connection failures don't count and are retried next time.
 
 ### When a new lure domain shows up
 
@@ -279,6 +289,7 @@ Settings used by the QR guard:
 | `qrBlockAnyQr` | `true` acts on any QR code; `false` only on the lure links listed above (default) |
 | `blockTextLinks` | `true` also acts on lure links in text messages (default); `false` checks images only |
 | `extraBlockDomains` | Your own domains to block; see "When a new lure domain shows up" above (default empty) |
+| `resolveShortLinks` | `true` follows the redirect of unlisted short-looking links once (default); see "Unlisted short links" above. `false` makes no outbound requests |
 | `pollIntervalSec` | Range in seconds between catch-up fetches (default `[10, 20]`); see "How messages arrive" below |
 
 The other settings in `config.json` belong to the experimental AI mode and are not used by the QR guard.
@@ -337,7 +348,7 @@ The full-size image is scanned locally with [zxing-wasm](https://github.com/Sec-
 
 - **Private messages**: scammers who message members directly are invisible to the bot. Consider pinning a notice such as "Admins will never message you privately. Anyone inviting you to invest in a private chat is a scammer."
 - **Text ads without a link**: for example "add my LINE abc8899" or "DM me for details". The guard only recognizes links; it doesn't judge what the text says.
-- **New lure domains**: a domain that isn't on the list gets through the first time; add it to `extraBlockDomains` yourself.
+- **New lure domains**: a domain that isn't on the list gets through the first time; add it to `extraBlockDomains` yourself. (If it in turn redirects to LINE or similar, the redirect check catches it.)
 - **Deliberately damaged or well-hidden QR codes**: if it can't be decoded, it won't be acted on.
 
 ## Experimental: AI review of text ads

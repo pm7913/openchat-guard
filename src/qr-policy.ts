@@ -12,9 +12,10 @@ const BLOCK: [RegExp, string][] = [
   [/(^|\/\/)(wa\.me|chat\.whatsapp\.com)\//i, "WhatsApp 連結"],
   [/weixin|wechat|u\.wechat\.com|wxp:\/\//i, "微信連結"],
   [
-    /(^|\/\/)(reurl\.cc|bit\.ly|tinyurl\.com|ppt\.cc|pse\.is|lihi\d?\.(cc|com|me)|cutt\.ly|is\.gd|v\.gd|goo\.gl|rebrand\.ly|shorturl\.at|s\.id|t\.ly|url\.kr|gg\.gg|tiny\.cc|ow\.ly|rb\.gy|0rz\.tw|tinyurl\.tw)\//i,
+    /(^|\/\/)(reurl\.cc|bit\.ly|tinyurl\.com|ppt\.cc|myppt\.cc|pse\.is|lihi\d?\.(cc|com|me)|cutt\.ly|is\.gd|v\.gd|goo\.gl|rebrand\.ly|shorturl\.at|s\.id|t\.ly|url\.kr|url\.asia|url\.tw|lurl\.cc|risu\.io|supr\.link|ssur\.cc|gg\.gg|tiny\.cc|ow\.ly|rb\.gy|0rz\.tw|tinyurl\.tw)\//i,
     "短網址（常用來藏真正的連結）",
   ],
+  [/(^|\/\/)(linktr\.ee|portaly\.cc)\//i, "多連結導流頁（常用來藏 LINE／群組連結）"],
 ];
 
 /**

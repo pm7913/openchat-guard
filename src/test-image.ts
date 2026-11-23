@@ -89,6 +89,38 @@ const cases: { name: string; expect: string[]; make: () => Promise<Img> }[] = [
     expect: [URL1],
     make: async () => { const b = poster(1080, 1350); const q = await qr(URL1); q.resize({ w: 200 }); b.composite(q, 860, 1130); b.resize({ w: 360 }); return b; },
   },
+  {
+    name: "高解析度雜訊海報右下角迷你 QR（68px）",
+    expect: [URL1],
+    make: async () => {
+      const b = poster(1600, 1000, 0x223344ff);
+      b.scan((x, y, i) => {
+        const v = ((x * 13 + y * 29) ^ (x * y)) & 0xff;
+        b.bitmap.data[i] = v;
+        b.bitmap.data[i + 1] = (v + 70) & 0xff;
+        b.bitmap.data[i + 2] = (v + 140) & 0xff;
+      });
+      const q = await qr(URL1, 160);
+      q.resize({ w: 68 });
+      b.composite(q, 1510, 910);
+      return b;
+    },
+  },
+  {
+    name: "雜訊海報左下角低對比小 QR（75px）",
+    expect: [URL2],
+    make: async () => {
+      const b = poster(1200, 1200, 0x222222ff);
+      b.scan((x, y, i) => {
+        const v = ((x * 7 + y * 19) * 31) & 0xff;
+        b.bitmap.data[i] = b.bitmap.data[i + 1] = b.bitmap.data[i + 2] = v;
+      });
+      const q = await qr(URL2, 160, "#e8d58a", "#554a22");
+      q.resize({ w: 75 });
+      b.composite(q, 30, 1095);
+      return b;
+    },
+  },
   { name: "沒有 QR 的圖", expect: [], make: async () => poster(600, 400, 0x336699ff) },
 ];
 

@@ -20,7 +20,8 @@ import type { SquareMessage } from "@evex-dev/linejs";
 import { appendLog, claimRunLock, DATA_DIR, loadConfig, requireWatchChats, readJson, writeJson } from "./config.js";
 import { downloadImage, scanQr } from "./image.js";
 import { getChatInfo, isAdminRole, loginSaved, saveAuth } from "./line.js";
-import { judgeQr, judgeText, type QrVerdict } from "./qr-policy.js";
+import { extractLinks, judgeQr, judgeText, type QrVerdict } from "./qr-policy.js";
+import { resolveBlockedRedirect } from "./redirect.js";
 import { startReceiver } from "./receiver.js";
 
 const cfg = loadConfig();
@@ -163,7 +164,11 @@ async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: 
   }
   const qr = (await scanQr(buf)).map((q) => q.text);
   scanned++;
-  const verdict = judgeQr(qr, { blockAnyQr: cfg.qrBlockAnyQr, extraDomains: cfg.extraBlockDomains });
+  let verdict = judgeQr(qr, { blockAnyQr: cfg.qrBlockAnyQr, extraDomains: cfg.extraBlockDomains });
+  if (!verdict.block && qr.length > 0 && cfg.resolveShortLinks) {
+    const resolved = await resolveBlockedRedirect(qr, { extraDomains: cfg.extraBlockDomains });
+    if (resolved?.block) verdict = resolved;
+  }
   if (!verdict.block) {
     if (qr.length) log(`圖片 QR 未處理｜${name}｜${verdict.reason}｜${qr.join("、")}`);
     return;
@@ -171,12 +176,14 @@ async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: 
   await punish(chat, sender, name, messageId, verdict, { image: buf });
 }
 
-function inspectText(chat: Chat, text: string, messageId: string, sender: string, name: string): void {
-  const verdict = judgeText(text, { extraDomains: cfg.extraBlockDomains });
+async function inspectText(chat: Chat, text: string, messageId: string, sender: string, name: string): Promise<void> {
+  let verdict = judgeText(text, { extraDomains: cfg.extraBlockDomains });
+  if (!verdict.block && cfg.resolveShortLinks) {
+    const resolved = await resolveBlockedRedirect(extractLinks(text), { extraDomains: cfg.extraBlockDomains });
+    if (resolved?.block) verdict = resolved;
+  }
   if (!verdict.block) return;
-  void punish(chat, sender, name, messageId, verdict, { text }).catch((e) =>
-    log(`處理文字連結出錯｜${name}｜${(e as Error).message}`),
-  );
+  await punish(chat, sender, name, messageId, verdict, { text });
 }
 
 /** 抓到導流：刪除這則和同一人一起傳的訊息，封鎖或移出發文者，留下紀錄。 */
@@ -265,7 +272,9 @@ const stats = await startReceiver({
     if (contentType === "IMAGE") {
       void inspectImage(chat, m, sender, name).catch((e) => log(`檢查圖片出錯｜${name}｜${(e as Error).message}`));
     } else if (cfg.blockTextLinks && (contentType === "NONE" || contentType === "0") && raw.text) {
-      inspectText(chat, raw.text, id, sender, name);
+      void inspectText(chat, raw.text, id, sender, name).catch((e) =>
+        log(`處理文字連結出錯｜${name}｜${(e as Error).message}`),
+      );
     }
   },
 });

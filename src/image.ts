@@ -62,11 +62,21 @@ function jsqr(b: Bitmap): string[] {
   return r?.data ? [r.data] : [];
 }
 
+/** 高機率藏著小 QR Code 的海報分區（依實戰常見度排序：右下、左下、底部、右上、左上）。 */
+const CORNER_REGIONS: [rx: number, ry: number, rw: number, rh: number][] = [
+  [0.55, 0.55, 0.45, 0.45],
+  [0.0, 0.55, 0.45, 0.45],
+  [0.2, 0.6, 0.6, 0.4],
+  [0.55, 0.0, 0.45, 0.45],
+  [0.0, 0.0, 0.45, 0.45],
+];
+
 /**
  * 找出圖片裡所有 QR Code。純本機影像演算法，不需要網路或 AI。
  * 1. zxing（主力）：一張圖可解多個、會自動試旋轉／反色／縮放／去雜訊
  * 2. 小圖放大 2 倍再用 zxing 掃一次（QR 常被縮得很小塞在角落）
  * 3. 都沒有才用 jsqr 補一次（兩套演算法偶爾互補）
+ * 4. 整圖仍掃不到時，針對四個角落與底部裁切放大重掃（抓大圖海報角落的迷你 QR）
  */
 export async function scanQrImage(img: JimpImage): Promise<QrResult[]> {
   const found = new Map<string, QrResult>();
@@ -79,6 +89,31 @@ export async function scanQrImage(img: JimpImage): Promise<QrResult[]> {
   if (found.size === 0 && small) add(await zxing(img.clone().scale(2).bitmap), "zxing");
   if (found.size === 0) add(jsqr(img.bitmap), "jsqr");
   if (found.size === 0 && small) add(jsqr(img.clone().scale(2).bitmap), "jsqr");
+
+  if (found.size === 0 && Math.min(img.width, img.height) >= 240) {
+    for (const [rx, ry, rw, rh] of CORNER_REGIONS) {
+      const x = Math.floor(img.width * rx);
+      const y = Math.floor(img.height * ry);
+      const w = Math.min(img.width - x, Math.ceil(img.width * rw));
+      const h = Math.min(img.height - y, Math.ceil(img.height * rh));
+      if (w < 80 || h < 80) continue;
+
+      const patch = img.clone().crop({ x, y, w, h });
+      const maxDim = Math.max(w, h);
+      const factor = maxDim < 320 ? 3 : maxDim < 800 ? 2 : 1;
+      if (factor > 1) {
+        const target = Math.min(maxDim * factor, 1600);
+        if (w >= h) patch.resize({ w: target });
+        else patch.resize({ h: target });
+      }
+
+      // 每區只掃一次 zxing：大多數圖片根本沒有 QR，這一段的成本每張圖都要付，
+      // 而 zxing 本身已會試反色／縮放／去雜訊，再加對比或 jsqr 只會讓沒有 QR 的圖慢好幾倍
+      add(await zxing(patch.bitmap), "zxing");
+      if (found.size > 0) break;
+    }
+  }
+
   return [...found.values()];
 }
 
