@@ -6,6 +6,14 @@ import { DATA_DIR, ensureDataDir, readJson, writeJson } from "./config.js";
 /** 以 Windows 電腦版身分登入。會擠掉這個帳號原本的電腦版登入（機器人專用帳號沒影響）。 */
 const DEVICE = "DESKTOPWIN" as const;
 
+/**
+ * 不走 LINE 的加密閘道（/enc）。2026-11-18 起 /enc 對所有請求回空的 404，
+ * 登入卡在 getProfile；linejs 維護者確認是 LINE 端的問題，建議先改走不加密的路徑。
+ * https://github.com/evex-dev/linejs/issues/280
+ * 連線本身仍是 HTTPS，只是少了 LINE 自己多包的一層加密。/enc 恢復後可改回 "auto"。
+ */
+const LEGY = { encrypted: false } as const;
+
 function storage(): FileStorage {
   ensureDataDir();
   return new FileStorage(path.join(DATA_DIR, "line-storage.json"));
@@ -23,7 +31,7 @@ export async function loginByQr(onQrUrl: (url: string) => Promise<void> | void):
         console.log(`\n請在手機 LINE 上輸入這組認證碼：${pin}\n`);
       },
     },
-    { device: DEVICE, storage: storage() },
+    { device: DEVICE, storage: storage(), legy: LEGY },
   );
   saveAuth(client);
   return client;
@@ -70,7 +78,7 @@ export async function loginSaved(): Promise<Client> {
     console.error("還沒登入。請先執行：npm run login");
     process.exit(1);
   }
-  const client = await loginWithAuthToken(auth.authToken, { device: DEVICE, storage: storage() });
+  const client = await loginWithAuthToken(auth.authToken, { device: DEVICE, storage: storage(), legy: LEGY });
   saveAuth(client);
   return client;
 }
