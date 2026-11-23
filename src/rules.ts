@@ -1,3 +1,4 @@
+import { LINE_NEWS_LINK } from "./qr-policy.js";
 import { compactText, nameKey, normalizeText, similarity } from "./normalize.js";
 
 export interface RuleInput {
@@ -67,14 +68,17 @@ export function evaluateRules(input: RuleInput): RuleResult {
 
   const qrJoined = input.qrTexts.map(normalizeText).join(" ");
   const allText = `${normalized} ${qrJoined}`;
+  // LINE TODAY 新聞連結跟加好友連結同網域，比對導流前先拿掉
+  const inviteText = allText.replace(LINE_NEWS_LINK, " ");
+  const qrInviteText = qrJoined.replace(LINE_NEWS_LINK, " ");
 
-  if (LINE_INVITE.test(allText)) add(0.6, "含 LINE 加好友／加群連結");
+  if (LINE_INVITE.test(inviteText)) add(0.6, "含 LINE 加好友／加群連結");
   if (input.qrTexts.length > 0) {
-    if (LINE_INVITE.test(qrJoined)) add(0.4, "圖片 QR Code 是 LINE 加好友／加群連結");
+    if (LINE_INVITE.test(qrInviteText)) add(0.4, "圖片 QR Code 是 LINE 加好友／加群連結");
     else add(0.3, "圖片含 QR Code");
   }
   const hasUrl = URL.test(allText);
-  if (hasUrl && !LINE_INVITE.test(allText)) add(0.15, "含網址");
+  if (hasUrl && !LINE_INVITE.test(inviteText)) add(0.15, "含網址");
   if (SHORTENER.test(allText)) add(0.25, "含短網址或導流頁");
   if (LINE_ID.test(normalized)) add(0.3, "含 LINE ID 寫法");
   if (PRIVATE_CONTACT.test(compact)) add(0.35, "引導私下聯繫");

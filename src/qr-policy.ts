@@ -3,6 +3,19 @@
  * 純字串比對，不需要網路或 AI。
  */
 
+/**
+ * LINE 自家的新聞連結：網域跟 LINE 加好友／小程式連結一樣，但只是新聞文章，不是導流。
+ * 先比對這份白名單，命中就不處理。
+ *   - today.line.me/...：LINE TODAY 網頁版
+ *   - liff.line.me/1454987169-xxxx/...：LINE TODAY 在 App 裡的分享連結（1454987169 是 LINE TODAY 的頻道 ID）
+ */
+export const LINE_NEWS_LINK = /(?:(?:^|\/\/)today\.line\.me\/|(?:^|\/\/)liff\.line\.me\/1454987169-)\S*/gi;
+
+function isLineNews(link: string): boolean {
+  LINE_NEWS_LINK.lastIndex = 0;
+  return LINE_NEWS_LINK.test(link.trim());
+}
+
 const BLOCK: [RegExp, string][] = [
   [/(^|\/\/|\.)line\.me\//i, "LINE 加好友／加群連結"],
   [/(^|\/\/)lin\.ee\//i, "LINE 官方帳號短連結"],
@@ -54,6 +67,7 @@ export interface PolicyOptions {
 /** 單一連結或 QR 內容是不是導流 */
 function judgeOne(text: string, extraDomains: string[]): string | null {
   const t = text.trim();
+  if (isLineNews(t)) return null;
   for (const [re, reason] of BLOCK) if (re.test(t)) return reason;
   const host = hostOf(t);
   if (!host || !host.includes(".")) return null;

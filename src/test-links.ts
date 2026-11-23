@@ -53,6 +53,12 @@ const cases: [text: string, shouldBlock: boolean][] = [
   ["股價 2330.TW 收在 1050", false],
   ["https://notscam-shop.com/", false], // 名字很像，但不是自訂網域或它的子網域
   ["https://www.cna.com.tw/news/aipl/202611130001.aspx", false],
+  // LINE TODAY 新聞（網域跟 LINE 小程式一樣，但不是導流）
+  ["https://liff.line.me/1454987169-1WAXAP3K/v3/article/j7pDOrx?utm_source=lineshare", false],
+  ["https://today.line.me/tw/v2/article/j7pDOrx", false],
+  // 新聞連結旁邊夾帶導流連結還是要處理
+  ["https://liff.line.me/1454987169-1WAXAP3K/v3/article/abc 想賺錢加 https://line.me/ti/g2/AbCd", true],
+  ["https://liff.line.me/1454987169x-AbCd/v3/article/abc", true], // 頻道 ID 不完全一樣
 ];
 
 let pass = 0;
@@ -67,6 +73,7 @@ const qrCases: [qr: string, shouldBlock: boolean][] = [
   ["https://okbin.eu.cc/IjX00vF/", true],
   ["https://scam-shop.com/", true],
   ["https://www.cna.com.tw/", false],
+  ["https://liff.line.me/1454987169-1WAXAP3K/v3/article/j7pDOrx", false],
 ];
 for (const [qr, expected] of qrCases) {
   const v = judgeQr([qr], { extraDomains: EXTRA });
