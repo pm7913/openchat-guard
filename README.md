@@ -249,7 +249,13 @@ bash /tmp/openchat-guard-install/ops/install-auto-deploy.sh
 | `openchat-guard-deploy now` | 不等 2 分鐘，立刻檢查並部署 |
 | `openchat-guard-deploy rollback` | 回到上一個成功部署的版本 |
 
-**Telegram 通知**（選用）：在 `~/openchat-guard/.env` 填這兩行，部署成功、失敗、回退時都會通知。沒填就不通知，其他功能照常。這個檔案不會進 git。
+**Telegram 通知**（選用）：部署成功、失敗、回退時都會通知。在 VPS 上執行這行，它會請你貼上 bot token（畫面不顯示）、自動找出 chat id、先發一則測試訊息，成功了才寫進 `~/openchat-guard/.env`：
+
+```bash
+bash <(git -C ~/openchat-guard/.deploy/repo show origin/main:ops/set-telegram.sh)
+```
+
+也可以自己在 `~/openchat-guard/.env` 填這兩行。沒設定就不通知，其他功能照常。這個檔案不會進 git。
 
 ```
 TELEGRAM_BOT_TOKEN=你的 bot token

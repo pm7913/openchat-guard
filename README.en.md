@@ -252,7 +252,13 @@ A systemd timer then checks GitHub every 2 minutes. On a new commit it fetches, 
 | `openchat-guard-deploy now` | Check and deploy immediately instead of waiting |
 | `openchat-guard-deploy rollback` | Go back to the last version that deployed successfully |
 
-**Telegram notifications** (optional): put these two lines in `~/openchat-guard/.env` to get a message on success, failure and rollback. Without them nothing is sent and everything else works as usual. The file never enters git.
+**Telegram notifications** (optional): get a message on success, failure and rollback. Run this on the VPS; it asks for the bot token (input hidden), finds the chat id for you, sends a test message, and only then writes `~/openchat-guard/.env`:
+
+```bash
+bash <(git -C ~/openchat-guard/.deploy/repo show origin/main:ops/set-telegram.sh)
+```
+
+Or put these two lines in `~/openchat-guard/.env` yourself. Without them nothing is sent and everything else works as usual. The file never enters git.
 
 ```
 TELEGRAM_BOT_TOKEN=your bot token
