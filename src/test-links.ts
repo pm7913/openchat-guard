@@ -59,6 +59,14 @@ const cases: [text: string, shouldBlock: boolean][] = [
   // 新聞連結旁邊夾帶導流連結還是要處理
   ["https://liff.line.me/1454987169-1WAXAP3K/v3/article/abc 想賺錢加 https://line.me/ti/g2/AbCd", true],
   ["https://liff.line.me/1454987169x-AbCd/v3/article/abc", true], // 頻道 ID 不完全一樣
+  // 要求加 LINE + 不認識的連結（自架跳轉頁，網域每次換）
+  ["加 LINE：https://hjgjhhf.com/UvmIaL 回覆【666】", true],
+  ["加 L I N E 好友 https://abcxyz.top/k9", true],
+  ["想進群的加賴 qwe123.com/a", true],
+  ["加入好友領報告 https://zzz.vip/x", true],
+  ["加 LINE 看 https://tw.stock.yahoo.com/quote/2330.TW", false], // 已知大站
+  ["加 LINE TODAY 追蹤 https://liff.line.me/1454987169-1WAXAP3K/v3/article/j7pDOrx", false], // LINE 新聞
+  ["這家 online 券商 https://hjgjhhf.com/UvmIaL", false], // 沒要人加 LINE
 ];
 
 let pass = 0;
@@ -86,12 +94,19 @@ let total = cases.length + qrCases.length;
 
 // ── 未知短網址跳轉追蹤（純離線模擬，不連網） ──
 const publicLookup: LookupLike = async (host) => (host === "internal.test" ? ["10.0.0.5"] : ["93.184.216.34"]);
-const mockTable: Record<string, { status: number; location?: string; rejectHead?: boolean }> = {
+const mockTable: Record<string, { status: number; location?: string; rejectHead?: boolean; body?: string }> = {
   "https://foo.bz/x9k2": { status: 302, location: "https://line.me/ti/g2/AbCdEf" },
   "https://foo.bz/hop1": { status: 301, location: "https://bar.bz/hop2" },
   "https://bar.bz/hop2": { status: 302, location: "https://lin.ee/ZxYvWu" },
   "https://foo.bz/nohead": { status: 302, location: "https://t.me/vip_group", rejectHead: true },
   "https://foo.bz/news": { status: 302, location: "https://www.cna.com.tw/news/1" },
+  "https://fake.bz/UvmIaL": { status: 200, body: `<html><head><title>Add LINE friend &hellip;</title></head><body><script>/* 混淆 */</script></body></html>` },
+  "https://fake.bz/zh": { status: 200, body: `<html><head><meta property="og:title" content="加入好友"><title>載入中</title></head></html>` },
+  "https://fake.bz/meta": { status: 200, body: `<html><head><meta http-equiv="refresh" content="0;url=https://line.me/ti/g2/MetaGrp"></head></html>` },
+  "https://fake.bz/js": { status: 200, body: `<html><head><title>loading</title><script>window.location.href = "https://lin.ee/JsHop";</script></head></html>` },
+  "https://fake.bz/hop": { status: 302, location: "https://fake.bz/UvmIaL" },
+  "https://fake.bz/blog": { status: 200, body: `<html><head><title>台積電法說會重點整理</title></head></html>` },
+  "https://fake.bz/pdf": { status: 200, body: "Add LINE friend" },
 };
 let fetchedUrls: string[] = [];
 const mockFetch: FetchLike = async (url, init) => {
@@ -99,7 +114,11 @@ const mockFetch: FetchLike = async (url, init) => {
   const row = mockTable[url];
   if (!row) return new Response(null, { status: 404 });
   if (row.rejectHead && init?.method === "HEAD") return new Response(null, { status: 405 });
-  return new Response(null, { status: row.status, headers: row.location ? { location: row.location } : {} });
+  const headers: Record<string, string> = {};
+  if (row.location) headers.location = row.location;
+  if (row.body !== undefined) headers["content-type"] = url.endsWith("/pdf") ? "application/pdf" : "text/html;charset=UTF-8";
+  const body = init?.method === "HEAD" ? null : (row.body ?? null);
+  return new Response(body, { status: row.status, headers });
 };
 
 const redirectChecks: [name: string, fn: () => Promise<boolean>][] = [
@@ -133,6 +152,43 @@ const redirectChecks: [name: string, fn: () => Promise<boolean>][] = [
       const v = await resolveBlockedRedirect(["https://foo.bz/news"], { fetcher: mockFetch, lookup: publicLookup, useCache: false });
       return v === null;
     },
+  ],
+  [
+    "網頁標題「Add LINE friend」（JS 藏連結）→ 處理",
+    async () => {
+      const v = await resolveBlockedRedirect(["https://fake.bz/UvmIaL"], { fetcher: mockFetch, lookup: publicLookup, useCache: false });
+      return Boolean(v?.block && v.reason.includes("偽裝成 LINE 加好友頁"));
+    },
+  ],
+  [
+    "og:title「加入好友」→ 處理",
+    async () => Boolean((await resolveBlockedRedirect(["https://fake.bz/zh"], { fetcher: mockFetch, lookup: publicLookup, useCache: false }))?.block),
+  ],
+  [
+    "meta refresh 指向 LINE 群組 → 處理",
+    async () => {
+      const v = await resolveBlockedRedirect(["https://fake.bz/meta"], { fetcher: mockFetch, lookup: publicLookup, useCache: false });
+      return Boolean(v?.block && v.text?.includes("line.me/ti/g2/MetaGrp"));
+    },
+  ],
+  [
+    "JS 寫死 location.href 指向 lin.ee → 處理",
+    async () => {
+      const v = await resolveBlockedRedirect(["https://fake.bz/js"], { fetcher: mockFetch, lookup: publicLookup, useCache: false });
+      return Boolean(v?.block && v.text?.includes("lin.ee/JsHop"));
+    },
+  ],
+  [
+    "先跳轉再停在偽裝頁 → 處理",
+    async () => Boolean((await resolveBlockedRedirect(["https://fake.bz/hop"], { fetcher: mockFetch, lookup: publicLookup, useCache: false }))?.block),
+  ],
+  [
+    "一般網頁標題 → 不處理",
+    async () => (await resolveBlockedRedirect(["https://fake.bz/blog"], { fetcher: mockFetch, lookup: publicLookup, useCache: false })) === null,
+  ],
+  [
+    "不是 HTML（PDF）→ 不讀內容、不處理",
+    async () => (await resolveBlockedRedirect(["https://fake.bz/pdf"], { fetcher: mockFetch, lookup: publicLookup, useCache: false })) === null,
   ],
   [
     "DNS 解析為內網 IP → 不發請求（防 SSRF）",

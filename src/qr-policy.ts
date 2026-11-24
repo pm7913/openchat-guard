@@ -2,6 +2,7 @@
  * 導流連結判斷：QR Code 內容或文字訊息裡的連結，哪些一出現就視為詐騙導流。
  * 純字串比對，不需要網路或 AI。
  */
+import { compactText, normalizeText } from "./normalize.js";
 
 /**
  * LINE 自家的新聞連結：網域跟 LINE 加好友／小程式連結一樣，但只是新聞文章，不是導流。
@@ -39,6 +40,18 @@ const FREE_DOMAINS = [
   "eu.cc", "us.kg", "xx.kg", "dpdns.org", "qzz.io", "ggff.net",
   "ddns.net", "duckdns.org", "hopto.org", "zapto.org", "sytes.net",
   "trycloudflare.com", "ngrok-free.app", "ngrok.app", "ngrok.io", "loca.lt",
+];
+
+/** 常見新聞、股市、影音、社群主站：不是短網址、也不會是導流頁。跳轉追蹤和「要求加 LINE」判斷都略過。 */
+export const KNOWN_SITES = [
+  "cna.com.tw", "udn.com", "ltn.com.tw", "yahoo.com", "ettoday.net",
+  "setn.com", "tvbs.com.tw", "chinatimes.com", "storm.mg", "businessweekly.com.tw",
+  "cw.com.tw", "bnext.com.tw", "technews.tw", "moneydj.com", "cnyes.com",
+  "anue.com", "wantgoo.com", "cmoney.tw", "goodinfo.tw", "twse.com.tw",
+  "tpex.org.tw", "tradingview.com", "investing.com", "youtube.com", "youtu.be",
+  "google.com", "wikipedia.org", "github.com", "ptt.cc", "dcard.tw",
+  "mobile01.com", "facebook.com", "instagram.com", "threads.net", "threads.com",
+  "x.com", "twitter.com",
 ];
 
 /** 連結或 QR 內容的網域（小寫）。不是網址就回傳空字串。 */
@@ -116,10 +129,32 @@ export function extractLinks(text: string): string[] {
   return normalizeForLinks(text).match(LINK) ?? [];
 }
 
-/** 文字訊息裡有沒有導流連結。只看已知的導流連結；一般網站（例如新聞）不處理。 */
+/**
+ * 文字明講要人「加 LINE／加賴／加好友」（壓縮後比對，「加 L I N E」「加 賴」也算）。
+ * 搭配一條不認識的連結，幾乎就是導流：連結本身常是自架的跳轉頁，網域每次都換，靠清單擋不住。
+ */
+const ASK_ADD_LINE = /加(入)?(line|好友)|addline|line好友/;
+
+/** 不在已知大站、也不是 LINE 新聞的連結 */
+function isUnknownSite(link: string): boolean {
+  if (isLineNews(link)) return false;
+  const host = hostOf(link);
+  if (!host || !host.includes(".")) return false;
+  return !KNOWN_SITES.some((d) => isUnder(host, d));
+}
+
+/** 文字訊息裡有沒有導流連結。只看已知的導流連結，或「要求加 LINE + 不認識的連結」；一般網站（例如新聞）不處理。 */
 export function judgeText(text: string, opts: Pick<PolicyOptions, "extraDomains"> = {}): QrVerdict {
   const links = extractLinks(text);
   if (links.length === 0) return { block: false, reason: "沒有連結" };
   const verdict = judgeQr(links, { extraDomains: opts.extraDomains });
-  return verdict.block ? verdict : { block: false, reason: "連結不是已知的導流連結", text: links[0] };
+  if (verdict.block) return verdict;
+  const unknown = links.find(isUnknownSite);
+  if (unknown) {
+    const rest = normalizeForLinks(text).replace(LINK, " ");
+    if (ASK_ADD_LINE.test(compactText(normalizeText(rest)))) {
+      return { block: true, reason: "文字要求加 LINE 並附上不明連結", text: unknown };
+    }
+  }
+  return { block: false, reason: "連結不是已知的導流連結", text: links[0] };
 }

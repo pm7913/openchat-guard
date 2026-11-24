@@ -1,23 +1,12 @@
 /**
  * 未知短網址跳轉追蹤：當連結不在靜態清單內、但形態像短網址時，
- * 只發輕量 HEAD 請求（redirect: "manual"，不載入網頁、不帶 Cookie），
+ * 只發輕量 HEAD 請求（redirect: "manual"，不帶 Cookie），
  * 檢查 Location 標頭是否跳轉至 LINE／Telegram／WhatsApp／微信／封鎖網域。
+ * 停在一般網頁時，再讀網頁開頭 32KB，看標題是否偽裝成 LINE 加好友頁（不執行 JavaScript）。
  */
 import dns from "node:dns/promises";
 import net from "node:net";
-import { judgeQr, type QrVerdict } from "./qr-policy.js";
-
-/** 常見新聞、股市、影音、社群主站：不是短網址，略過跳轉追蹤。 */
-const SKIP_DOMAINS = [
-  "cna.com.tw", "udn.com", "ltn.com.tw", "yahoo.com", "ettoday.net",
-  "setn.com", "tvbs.com.tw", "chinatimes.com", "storm.mg", "businessweekly.com.tw",
-  "cw.com.tw", "bnext.com.tw", "technews.tw", "moneydj.com", "cnyes.com",
-  "anue.com", "wantgoo.com", "cmoney.tw", "goodinfo.tw", "twse.com.tw",
-  "tpex.org.tw", "tradingview.com", "investing.com", "youtube.com", "youtu.be",
-  "google.com", "wikipedia.org", "github.com", "ptt.cc", "dcard.tw",
-  "mobile01.com", "facebook.com", "instagram.com", "threads.net", "threads.com",
-  "x.com", "twitter.com",
-];
+import { judgeQr, KNOWN_SITES, type QrVerdict } from "./qr-policy.js";
 
 const STATIC_EXT = /\.(?:jpe?g|png|gif|webp|svg|ico|pdf|mp4|mov|mp3|zip|html?|aspx|jsp|css|js)$/i;
 
@@ -92,7 +81,7 @@ export function isShortLinkCandidate(rawLink: string): string | null {
   const host = u.hostname.toLowerCase().replace(/\.$/, "");
   if (!host.includes(".") || host.length > 28) return null;
   if (isPrivateHost(host)) return null;
-  for (const d of SKIP_DOMAINS) if (isUnder(host, d)) return null;
+  for (const d of KNOWN_SITES) if (isUnder(host, d)) return null;
 
   if (u.pathname.length <= 1) return null;
   if (u.pathname.length + u.search.length > 48) return null;
@@ -119,6 +108,104 @@ export interface ResolveOptions {
   useCache?: boolean;
   fetcher?: FetchLike;
   lookup?: LookupLike;
+}
+
+/** 網頁標題自稱 LINE 加好友頁（例：「Add LINE friend …」「加入好友」），但網域不是 LINE。 */
+const LINE_LANDING_TITLE = /add\s*line\s*friend|line\s*(add\s*)?friend|加入?\s*line|line\s*好友|加入?好友/i;
+const PAGE_READ_LIMIT = 32 * 1024;
+
+/** 讀網頁開頭一段（夠看到 <head>），讀完就斷線，不下載整頁。 */
+async function readHead(res: Response, limit = PAGE_READ_LIMIT): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < limit) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks).subarray(0, limit).toString("utf8");
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(Number.parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&hellip;/g, "…")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * 跳轉追到最後停在一般網頁時，讀網頁開頭檢查：
+ *   - 標題／og:title 自稱 LINE 加好友頁
+ *   - <meta refresh> 或寫死的 location = "..." 指向導流連結
+ * 不執行 JavaScript。讀不到就當沒事（回傳 null）。
+ */
+async function inspectLanding(
+  url: string,
+  res: Response,
+  method: "HEAD" | "GET",
+  getInit: () => RequestInit,
+  opts: { fetcher: FetchLike; extraDomains?: string[] },
+): Promise<{ reason: string; target?: string } | null> {
+  const type = res.headers.get("content-type") ?? "";
+  if (type && !/html/i.test(type)) {
+    void res.body?.cancel();
+    return null;
+  }
+  let html: string;
+  try {
+    if (method === "HEAD") {
+      void res.body?.cancel();
+      const page = await opts.fetcher(url, getInit());
+      if (page.status < 200 || page.status >= 300) {
+        void page.body?.cancel();
+        return null;
+      }
+      html = await readHead(page);
+    } else {
+      html = await readHead(res);
+    }
+  } catch {
+    return null;
+  }
+
+  const titles = [
+    html.match(/<title[^>]*>([\s\S]{0,300}?)<\/title>/i)?.[1],
+    ...[...html.matchAll(/<meta\b[^>]*(?:property|name)\s*=\s*["'](?:og:title|twitter:title)["'][^>]*>/gi)].map(
+      (m) => m[0].match(/content\s*=\s*["']([^"']*)["']/i)?.[1],
+    ),
+  ]
+    .filter((t): t is string => Boolean(t))
+    .map((t) => decodeEntities(t).trim());
+  const fake = titles.find((t) => LINE_LANDING_TITLE.test(t));
+  if (fake) return { reason: `網頁偽裝成 LINE 加好友頁（標題「${fake.slice(0, 40)}」）` };
+
+  const targets = [
+    html.match(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*content\s*=\s*["'][^"']*?url\s*=\s*([^"'\s>]+)/i)?.[1],
+    ...[...html.matchAll(/location(?:\.href)?\s*=\s*["']([^"']{4,300})["']/gi)].map((m) => m[1]),
+  ].filter((t): t is string => Boolean(t));
+  for (const raw of targets) {
+    let target: string;
+    try {
+      target = new URL(decodeEntities(raw), url).href;
+    } catch {
+      continue;
+    }
+    const v = judgeQr([target], { extraDomains: opts.extraDomains });
+    if (v.block) return { reason: `網頁會跳轉至${v.reason}`, target };
+  }
+  return null;
 }
 
 /**
@@ -162,14 +249,24 @@ async function probeOne(startUrl: string, opts: Required<Pick<ResolveOptions, "m
     });
 
     let res: Response;
+    let method: "HEAD" | "GET" = "HEAD";
     try {
       res = await opts.fetcher(current, reqInit("HEAD"));
       if (res.status === 405 || res.status === 403 || res.status === 501) {
         void res.body?.cancel();
+        method = "GET";
         res = await opts.fetcher(current, reqInit("GET"));
       }
     } catch {
       return unknown;
+    }
+
+    if (res.status >= 200 && res.status < 300) {
+      // 停在一般網頁：看看是不是偽裝成 LINE 加好友頁（真正的連結藏在 JavaScript 裡，靠跳轉追不到）
+      const page = await inspectLanding(current, res, method, () => reqInit("GET"), opts);
+      if (!page) return safe;
+      const via = current === startUrl ? startUrl : `${startUrl} → ${current}`;
+      return { verdict: { block: true, reason: page.reason, text: page.target ? `${via} → ${page.target}` : via }, definitive: true };
     }
     void res.body?.cancel();
 
