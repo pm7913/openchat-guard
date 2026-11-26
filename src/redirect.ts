@@ -149,6 +149,7 @@ function decodeEntities(s: string): string {
  * 跳轉追到最後停在一般網頁時，讀網頁開頭檢查：
  *   - 標題／og:title 自稱 LINE 加好友頁
  *   - <meta refresh> 或寫死的 location = "..." 指向導流連結
+ *   - 加密跳轉頁：頁面沒什麼文字、全是混淆程式（標題被換成「opening …」也抓得到）
  * 不執行 JavaScript。讀不到就當沒事（回傳 null）。
  */
 async function inspectLanding(
@@ -205,7 +206,35 @@ async function inspectLanding(
     const v = judgeQr([target], { extraDomains: opts.extraDomains });
     if (v.block) return { reason: `網頁會跳轉至${v.reason}`, target };
   }
+
+  if (isObfuscatedCloak(html)) return { reason: "網頁是加密跳轉頁（真正的連結藏在混淆程式裡）" };
   return null;
+}
+
+/**
+ * javascript-obfuscator 產生的程式碼特徵：字串陣列輪轉迴圈 while(!![]) 搭配 parseInt。
+ * 正常網站很少把這種程式直接寫在頁面裡，詐騙跳轉頁常用它藏住目的地、擋掉分析。
+ */
+const OBFUSCATOR_MARK = /while\s*\(\s*!!\s*\[\s*\]\s*\)/;
+
+/**
+ * 加密跳轉頁：頁面上幾乎沒有文字（只有「opening …」「Add LINE friend …」這類載入字樣），
+ * 內容全是寫在頁面裡的混淆程式。標題怎麼換都一樣抓得到。
+ */
+function isObfuscatedCloak(html: string): boolean {
+  const scripts = [...html.matchAll(/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)(?:<\/script>|$)/gi)].map((m) => m[1]);
+  const inline = scripts.join("\n");
+  if (inline.length < 3000 || !OBFUSCATOR_MARK.test(inline) || !/parseInt\s*\(/.test(inline)) return false;
+  const visible = decodeEntities(
+    html
+      .replace(/<script\b[\s\S]*?(?:<\/script>|$)/gi, " ")
+      .replace(/<style\b[\s\S]*?(?:<\/style>|$)/gi, " ")
+      .replace(/<head\b[\s\S]*?<\/head>/i, " ")
+      .replace(/<[^>]*>/g, " "),
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+  return visible.length < 200;
 }
 
 /**
@@ -266,7 +295,10 @@ async function probeOne(startUrl: string, opts: Required<Pick<ResolveOptions, "m
       const page = await inspectLanding(current, res, method, () => reqInit("GET"), opts);
       if (!page) return safe;
       const via = current === startUrl ? startUrl : `${startUrl} → ${current}`;
-      return { verdict: { block: true, reason: page.reason, text: page.target ? `${via} → ${page.target}` : via }, definitive: true };
+      return {
+        verdict: { block: true, reason: page.reason, text: page.target ? `${via} → ${page.target}` : via, learnHost: u.hostname.toLowerCase().replace(/\.$/, "") },
+        definitive: true,
+      };
     }
     void res.body?.cancel();
 

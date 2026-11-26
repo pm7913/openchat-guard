@@ -20,7 +20,7 @@ import type { SquareMessage } from "@evex-dev/linejs";
 import { appendLog, claimRunLock, DATA_DIR, loadConfig, requireWatchChats, readJson, writeJson } from "./config.js";
 import { downloadImage, scanQr } from "./image.js";
 import { getChatInfo, isAdminRole, loginSaved, saveAuth } from "./line.js";
-import { extractLinks, judgeQr, judgeText, type QrVerdict } from "./qr-policy.js";
+import { extractLinks, isUnder, judgeQr, judgeText, KNOWN_SITES, type QrVerdict } from "./qr-policy.js";
 import { resolveBlockedRedirect } from "./redirect.js";
 import { startReceiver } from "./receiver.js";
 
@@ -38,7 +38,10 @@ const ts = () => new Date().toLocaleString("zh-TW", { hour12: false });
 const log = (msg: string) => console.log(`[${ts()}] ${msg}`);
 const now = () => Date.now();
 
-const state = readJson<{ syncTokens: Record<string, string> }>("guard-state.json", { syncTokens: {} });
+const state = readJson<{ syncTokens: Record<string, string>; learnedDomains?: Record<string, LearnedDomain> }>("guard-state.json", {
+  syncTokens: {},
+});
+state.learnedDomains ??= {};
 
 const client = await loginSaved();
 const sq = client.base.square;
@@ -153,6 +156,33 @@ async function removeMember(memberMid: string): Promise<string> {
   }
 }
 
+interface LearnedDomain {
+  at: string;
+  reason: string;
+  link?: string;
+}
+
+/** 學到的導流網域保留幾天。對方通常一個網域用一陣子就換，過期就不再比對，免得網域轉手後誤傷。 */
+const LEARNED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** 目前有效的學到的導流網域 */
+function learnedDomains(): string[] {
+  const cutoff = Date.now() - LEARNED_TTL_MS;
+  return Object.entries(state.learnedDomains ?? {})
+    .filter(([, v]) => Date.parse(v.at) >= cutoff)
+    .map(([host]) => host);
+}
+
+/** 追到偽裝頁、加密跳轉頁的網域記下來，之後同網域換路徑也直接處理，不用再連過去看。 */
+function learnFrom(verdict: QrVerdict): void {
+  const host = verdict.learnHost;
+  if (!host || !host.includes(".") || KNOWN_SITES.some((d) => isUnder(host, d))) return;
+  const isNew = !state.learnedDomains![host];
+  state.learnedDomains![host] = { at: new Date().toISOString(), reason: verdict.reason, link: verdict.text };
+  writeJson("guard-state.json", state);
+  if (isNew) log(`📌 記住導流網域 ${host}（之後同網域的連結直接處理，保留 ${LEARNED_TTL_MS / 86_400_000} 天）`);
+}
+
 async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: string): Promise<void> {
   const messageId = String(m.raw.message.id);
   let buf: Buffer;
@@ -164,10 +194,13 @@ async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: 
   }
   const qr = (await scanQr(buf)).map((q) => q.text);
   scanned++;
-  let verdict = judgeQr(qr, { blockAnyQr: cfg.qrBlockAnyQr, extraDomains: cfg.extraBlockDomains });
+  let verdict = judgeQr(qr, { blockAnyQr: cfg.qrBlockAnyQr, extraDomains: cfg.extraBlockDomains, learnedDomains: learnedDomains() });
   if (!verdict.block && qr.length > 0 && cfg.resolveShortLinks) {
     const resolved = await resolveBlockedRedirect(qr, { extraDomains: cfg.extraBlockDomains });
-    if (resolved?.block) verdict = resolved;
+    if (resolved?.block) {
+      verdict = resolved;
+      learnFrom(resolved);
+    }
   }
   if (!verdict.block) {
     if (qr.length) log(`圖片 QR 未處理｜${name}｜${verdict.reason}｜${qr.join("、")}`);
@@ -177,10 +210,18 @@ async function inspectImage(chat: Chat, m: SquareMessage, sender: string, name: 
 }
 
 async function inspectText(chat: Chat, text: string, messageId: string, sender: string, name: string): Promise<void> {
-  let verdict = judgeText(text, { extraDomains: cfg.extraBlockDomains });
-  if (!verdict.block && cfg.resolveShortLinks) {
+  let verdict = judgeText(text, { extraDomains: cfg.extraBlockDomains, learnedDomains: learnedDomains() });
+  if (verdict.block && verdict.learnable && cfg.resolveShortLinks) {
+    // 文字規則已經抓到：先處理，背景再追連結，是自架的偽裝頁就把網域記下來
+    void resolveBlockedRedirect(extractLinks(text), { extraDomains: cfg.extraBlockDomains })
+      .then((r) => r?.block && learnFrom(r))
+      .catch(() => {});
+  } else if (!verdict.block && cfg.resolveShortLinks) {
     const resolved = await resolveBlockedRedirect(extractLinks(text), { extraDomains: cfg.extraBlockDomains });
-    if (resolved?.block) verdict = resolved;
+    if (resolved?.block) {
+      verdict = resolved;
+      learnFrom(resolved);
+    }
   }
   if (!verdict.block) return;
   await punish(chat, sender, name, messageId, verdict, { text });

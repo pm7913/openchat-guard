@@ -55,13 +55,13 @@ export const KNOWN_SITES = [
 ];
 
 /** 連結或 QR 內容的網域（小寫）。不是網址就回傳空字串。 */
-function hostOf(link: string): string {
+export function hostOf(link: string): string {
   const m = link.trim().match(/^(?:[a-z][a-z0-9+.-]*:\/\/)?([^/?#\s:@]+)/i);
   return m ? m[1].toLowerCase().replace(/\.$/, "") : "";
 }
 
 /** host 是 domain 本身或它的子網域 */
-function isUnder(host: string, domain: string): boolean {
+export function isUnder(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`);
 }
 
@@ -75,16 +75,19 @@ export interface PolicyOptions {
   blockAnyQr?: boolean;
   /** 自訂要封鎖的網域（含子網域），config.json 的 extraBlockDomains */
   extraDomains?: string[];
+  /** 守衛自己學到的導流網域：之前追到偽裝頁、加密跳轉頁的網域，之後同網域換路徑也直接處理 */
+  learnedDomains?: string[];
 }
 
 /** 單一連結或 QR 內容是不是導流 */
-function judgeOne(text: string, extraDomains: string[]): string | null {
+function judgeOne(text: string, extraDomains: string[], learnedDomains: string[] = []): string | null {
   const t = text.trim();
   if (isLineNews(t)) return null;
   for (const [re, reason] of BLOCK) if (re.test(t)) return reason;
   const host = hostOf(t);
   if (!host || !host.includes(".")) return null;
   for (const d of extraDomains) if (d && isUnder(host, d)) return "自訂封鎖網域";
+  for (const d of learnedDomains) if (d && isUnder(host, d)) return "之前抓過的導流網域";
   for (const d of FREE_DOMAINS) if (isUnder(host, d)) return "免費網域（常用來架導流頁）";
   return null;
 }
@@ -96,13 +99,18 @@ export interface QrVerdict {
   reason: string;
   /** 觸發的那個 QR 內容 */
   text?: string;
+  /** 這個網域自己架了偽裝頁／加密跳轉頁，值得記住（之後同網域直接處理） */
+  learnHost?: string;
+  /** 只靠文字判斷、連結本身還沒查過（可以背景追一下，學網域） */
+  learnable?: boolean;
 }
 
 /** @param qrTexts 圖片裡解出的所有 QR 內容 */
 export function judgeQr(qrTexts: string[], opts: PolicyOptions = {}): QrVerdict {
   const extra = (opts.extraDomains ?? []).map(normalizeDomain);
+  const learned = (opts.learnedDomains ?? []).map(normalizeDomain);
   for (const text of qrTexts) {
-    const reason = judgeOne(text, extra);
+    const reason = judgeOne(text, extra, learned);
     if (reason) return { block: true, reason, text };
   }
   if (qrTexts.length === 0) return { block: false, reason: "沒有 QR Code" };
@@ -130,10 +138,10 @@ export function extractLinks(text: string): string[] {
 }
 
 /**
- * 文字明講要人「加 LINE／加賴／加好友」（壓縮後比對，「加 L I N E」「加 賴」也算）。
+ * 文字明講要人「加 LINE／加賴／加好友」「鏈結添加」「傳暗號」「私訊」（壓縮後比對，「加 L I N E」「加 賴」也算）。
  * 搭配一條不認識的連結，幾乎就是導流：連結本身常是自架的跳轉頁，網域每次都換，靠清單擋不住。
  */
-const ASK_ADD_LINE = /加(入)?(line|好友)|addline|line好友/;
+const ASK_ADD_LINE = /加(入)?(line|好友)|addline|line好友|添加|暗號|暗号|私訊/;
 
 /** 不在已知大站、也不是 LINE 新聞的連結 */
 function isUnknownSite(link: string): boolean {
@@ -144,16 +152,16 @@ function isUnknownSite(link: string): boolean {
 }
 
 /** 文字訊息裡有沒有導流連結。只看已知的導流連結，或「要求加 LINE + 不認識的連結」；一般網站（例如新聞）不處理。 */
-export function judgeText(text: string, opts: Pick<PolicyOptions, "extraDomains"> = {}): QrVerdict {
+export function judgeText(text: string, opts: Pick<PolicyOptions, "extraDomains" | "learnedDomains"> = {}): QrVerdict {
   const links = extractLinks(text);
   if (links.length === 0) return { block: false, reason: "沒有連結" };
-  const verdict = judgeQr(links, { extraDomains: opts.extraDomains });
+  const verdict = judgeQr(links, { extraDomains: opts.extraDomains, learnedDomains: opts.learnedDomains });
   if (verdict.block) return verdict;
   const unknown = links.find(isUnknownSite);
   if (unknown) {
     const rest = normalizeForLinks(text).replace(LINK, " ");
     if (ASK_ADD_LINE.test(compactText(normalizeText(rest)))) {
-      return { block: true, reason: "文字要求加 LINE 並附上不明連結", text: unknown };
+      return { block: true, reason: "文字要求加 LINE／私訊並附上不明連結", text: unknown, learnable: true };
     }
   }
   return { block: false, reason: "連結不是已知的導流連結", text: links[0] };

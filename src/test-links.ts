@@ -67,6 +67,18 @@ const cases: [text: string, shouldBlock: boolean][] = [
   ["加 LINE 看 https://tw.stock.yahoo.com/quote/2330.TW", false], // 已知大站
   ["加 LINE TODAY 追蹤 https://liff.line.me/1454987169-1WAXAP3K/v3/article/j7pDOrx", false], // LINE 新聞
   ["這家 online 券商 https://hjgjhhf.com/UvmIaL", false], // 沒要人加 LINE
+  ["鏈結添加： hjgjhhf.com/vE30FY", true],
+  ["傳暗號 666 給我 https://qqq.top/a1", true],
+  ["有興趣私訊 https://abc-stock.shop/x", true],
+  ["添加後請傳暗號（666）", false], // 沒有連結，QR 守衛不判斷文字內容
+];
+
+/** 守衛學到的導流網域（guard-state.json 的 learnedDomains） */
+const LEARNED = ["hjgjhhf.com"];
+const learnedCases: [text: string, shouldBlock: boolean][] = [
+  ["https://hjgjhhf.com/NewPath", true], // 同網域換路徑，沒寫加 LINE 也處理
+  ["看這個 www.hjgjhhf.com/x", true],
+  ["https://nothjgjhhf.com/x", false],
 ];
 
 let pass = 0;
@@ -75,6 +87,12 @@ for (const [text, expected] of cases) {
   const ok = v.block === expected;
   if (ok) pass++;
   console.log(`${ok ? "✓" : "✗"} ${v.block ? "處理  " : "不處理"}｜${text}${v.block ? `｜${v.reason}` : ""}`);
+}
+for (const [text, expected] of learnedCases) {
+  const v = judgeText(text, { extraDomains: EXTRA, learnedDomains: LEARNED });
+  const ok = v.block === expected;
+  if (ok) pass++;
+  console.log(`${ok ? "✓" : "✗"} ${v.block ? "處理  " : "不處理"}｜學到的網域｜${text}${v.block ? `｜${v.reason}` : ""}`);
 }
 // QR Code 內容也套用同樣的免費網域和自訂網域規則
 const qrCases: [qr: string, shouldBlock: boolean][] = [
@@ -90,10 +108,14 @@ for (const [qr, expected] of qrCases) {
   console.log(`${ok ? "✓" : "✗"} ${v.block ? "處理  " : "不處理"}｜QR：${qr}${v.block ? `｜${v.reason}` : ""}`);
 }
 
-let total = cases.length + qrCases.length;
+let total = cases.length + learnedCases.length + qrCases.length;
 
 // ── 未知短網址跳轉追蹤（純離線模擬，不連網） ──
 const publicLookup: LookupLike = async (host) => (host === "internal.test" ? ["10.0.0.5"] : ["93.184.216.34"]);
+/** javascript-obfuscator 風格的程式（字串陣列輪轉 while(!![]) + parseInt） */
+const OBFUSCATED =
+  "(function(a,b){var c=a();while(!![]){try{var d=parseInt(_d(0x361))/0x1+-parseInt(_d(0x162))/0x2;if(d===b)break;else c['push'](c['shift']());}catch(e){c['push'](c['shift']());}}}(_c,0xe72d8));" +
+  "var _0x1=['\x68\x72\x65\x66'];".repeat(200);
 const mockTable: Record<string, { status: number; location?: string; rejectHead?: boolean; body?: string }> = {
   "https://foo.bz/x9k2": { status: 302, location: "https://line.me/ti/g2/AbCdEf" },
   "https://foo.bz/hop1": { status: 301, location: "https://bar.bz/hop2" },
@@ -107,6 +129,10 @@ const mockTable: Record<string, { status: number; location?: string; rejectHead?
   "https://fake.bz/hop": { status: 302, location: "https://fake.bz/UvmIaL" },
   "https://fake.bz/blog": { status: 200, body: `<html><head><title>台積電法說會重點整理</title></head></html>` },
   "https://fake.bz/pdf": { status: 200, body: "Add LINE friend" },
+  "https://fake.bz/cloak": { status: 200, body: `<html><head><title>opening &hellip;</title></head><body><script>${OBFUSCATED}</script><div id="code">opening &hellip;</div></body></html>` },
+  "https://fake.bz/cloak-cut": { status: 200, body: `<html><head><title>opening</title></head><body><script>${OBFUSCATED.repeat(20)}` }, // 超過讀取上限、script 沒收尾
+  "https://fake.bz/article": { status: 200, body: `<html><head><title>心得</title></head><body><script>${OBFUSCATED}</script><article>${"台積電今天走勢很強，".repeat(40)}</article></body></html>` },
+  "https://fake.bz/spa": { status: 200, body: `<html><head><title>App</title></head><body><div id="root"></div><script>${"var a=1;".repeat(1000)}</script></body></html>` },
 };
 let fetchedUrls: string[] = [];
 const mockFetch: FetchLike = async (url, init) => {
@@ -189,6 +215,25 @@ const redirectChecks: [name: string, fn: () => Promise<boolean>][] = [
   [
     "不是 HTML（PDF）→ 不讀內容、不處理",
     async () => (await resolveBlockedRedirect(["https://fake.bz/pdf"], { fetcher: mockFetch, lookup: publicLookup, useCache: false })) === null,
+  ],
+  [
+    "加密跳轉頁（標題 opening …、全是混淆程式）→ 處理並標記可學習網域",
+    async () => {
+      const v = await resolveBlockedRedirect(["https://fake.bz/cloak"], { fetcher: mockFetch, lookup: publicLookup, useCache: false });
+      return Boolean(v?.block && v.reason.includes("加密跳轉頁") && v.learnHost === "fake.bz");
+    },
+  ],
+  [
+    "加密跳轉頁超過讀取上限 → 仍處理",
+    async () => Boolean((await resolveBlockedRedirect(["https://fake.bz/cloak-cut"], { fetcher: mockFetch, lookup: publicLookup, useCache: false }))?.block),
+  ],
+  [
+    "有混淆程式但頁面有正常文章 → 不處理",
+    async () => (await resolveBlockedRedirect(["https://fake.bz/article"], { fetcher: mockFetch, lookup: publicLookup, useCache: false })) === null,
+  ],
+  [
+    "一般單頁應用（大段程式、沒混淆特徵）→ 不處理",
+    async () => (await resolveBlockedRedirect(["https://fake.bz/spa"], { fetcher: mockFetch, lookup: publicLookup, useCache: false })) === null,
   ],
   [
     "DNS 解析為內網 IP → 不發請求（防 SSRF）",
